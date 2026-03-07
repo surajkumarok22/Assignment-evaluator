@@ -165,7 +165,7 @@ async function callGeminiAPI(prompt, filePaths) {
 
   const response = await axios.post(url, {
     contents: [{ role: "user", parts: parts }],
-    generationConfig: { temperature: 0.2, maxOutputTokens: 8192 },
+    generationConfig: { temperature: 0.2, maxOutputTokens: 8192, responseMimeType: "application/json" },
   });
   return response.data.candidates[0].content.parts[0].text;
 }

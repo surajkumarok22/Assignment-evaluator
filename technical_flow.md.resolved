@@ -1,0 +1,89 @@
+# Technical System Flow - AI Assignment Evaluator
+
+The following diagram illustrates the technical architecture and data flow of the application during the core evaluation process.
+
+```mermaid
+sequenceDiagram
+    participant Student as Student (Frontend)
+    participant Teacher as Teacher (Frontend)
+    participant NextJS as NextJS Client
+    participant Express as Express Backend
+    participant Mongo as MongoDB
+    participant Cloudinary as Cloudinary Storage
+    participant Gemini as Google Gemini API
+
+    %% Session Creation Flow
+    rect rgb(240, 248, 255)
+        Note over Teacher, Gemini: Teacher Session Creation
+        Teacher->>NextJS: Creates Session (Title, Subjects, Rubric)
+        Teacher->>NextJS: Uploads Question Paper & Model Answer (PDFs)
+        NextJS->>Express: POST /api/faculty/create-session (multipart/form-data)
+        Express->>Cloudinary: Streams files directly (Multer-Cloudinary)
+        Cloudinary-->>Express: Returns Secure URLs (e.g. res.cloudinary.com/...)
+        Express->>Express: Extracts fallback text via pdf-parse
+        Express->>Mongo: Saves Session doc (URLs, Rubric, Settings, Teacher ID)
+        Mongo-->>Express: Session ID generated
+        Express-->>NextJS: Returns Session ID
+        NextJS-->>Teacher: Displays Session ID for sharing
+    end
+
+    %% Student Evaluation Flow
+    rect rgb(245, 255, 250)
+        Note over Student, Gemini: Student Assignment Evaluation
+        Student->>NextJS: Enters Name, Session ID & Uploads Assignment
+        NextJS->>Express: POST /api/student/evaluate (multipart/form-data)
+        Express->>Cloudinary: Streams Assignment file
+        Cloudinary-->>Express: Returns Assignment URL
+        Express->>Mongo: Queries Session details by ID
+        Mongo-->>Express: Returns Rubric, Settings, Question URL, Model Answer URL
+        Express->>Express: Extracts fallback text from Assignment
+
+        %% The AI Pipeline
+        Note right of Express: The Multi-Modal AI Pipeline
+        Express->>Cloudinary: fetch() Question Paper PDF as ArrayBuffer
+        Cloudinary-->>Express: Raw PDF byte buffer
+        Express->>Cloudinary: fetch() Model Answer PDF as ArrayBuffer
+        Cloudinary-->>Express: Raw PDF byte buffer
+        Express->>Cloudinary: fetch() Student Assignment as ArrayBuffer
+        Cloudinary-->>Express: Raw PDF byte buffer
+
+        Express->>Express: Converts all 3 buffers to Base64 (inlineData)
+        Express->>Gemini: POST /v1beta/models/gemini-flash:generateContent
+        Note right of Gemini: Injects Strict Prompt + Rubric + Base64 PDFs
+        
+        Gemini-->>Express: Returns formatted JSON (Scores, Feedback, Grade)
+        Express->>Express: Regex parsing & validation of JSON payload
+        
+        Express->>Mongo: Saves Submission doc (Student params, URL, JSON result, Session ID)
+        Express-->>NextJS: Full JSON Result Payload
+        NextJS-->>Student: Renders Radar Chart, Grades, & Feedback Badges
+    end
+
+    %% History Fetching Flow
+    rect rgb(255, 250, 240)
+        Note over Student, Mongo: History & Dashboard Retrieval
+        Teacher->>NextJS: Clicks History Tab
+        NextJS->>Express: GET /api/faculty/sessions (JWT Bearer)
+        Express->>Mongo: find({ createdBy: teacher.id })
+        Mongo-->>Express: Returns list of Sessions
+        Express-->>NextJS: Renders Session List
+
+        Teacher->>NextJS: Expands Session X
+        NextJS->>Express: GET /api/student/submissions/X
+        Express->>Mongo: find({ sessionId: X })
+        Mongo-->>Express: Returns Submissions (with Grades/Scores)
+        Express-->>NextJS: Renders Student List
+
+        Student->>NextJS: Clicks My History
+        NextJS->>Express: GET /api/student/my-submissions (JWT Bearer)
+        Express->>Mongo: find({ studentId: student.id })
+        Mongo-->>Express: Returns past Submissions Document List
+        Express-->>NextJS: Renders historical Radar Charts
+    end
+```
+
+## Key Architectural Decisions
+1. **JWT & Roles:** Every request past the login boundaries includes a short-lived JSON Web Token defining the user's explicit role (`student` or `teacher`), securing the API.
+2. **Cloudinary Pipeline:** Bypasses local disk I/O bottlenecks. Uploads stream directly to cloud storage, and are downloaded securely into raw memory buffers right before Gemini needs them.
+3. **Multi-Modal Gemini:** By passing Base64 encoded PDF buffers into `inlineData` instead of scraped text blocks, the AI preserves the structural integrity, graphs, and formatting of the teacher's Reference materials.
+4. **Regex Resiliency:** Even if Gemini hallucinates and wraps the JSON payload in markdown backticks or conversational text, [aiService.js](file:///c:/Users/abhis/Downloads/ai-evaluator/ai-evaluator/backend/aiService.js) strictly parses the data using `{[\s\S]*}` regex extractors.
