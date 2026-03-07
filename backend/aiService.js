@@ -35,17 +35,19 @@ ${questionText ? `QUESTION PAPER:\n${questionText}\n` : ""}
 ${modelAnswerText ? `MODEL ANSWER (use as reference, not as exact match requirement):\n${modelAnswerText}\n` : ""}
 
 STUDENT ASSIGNMENT TO EVALUATE:
-${filePath ? "A file is attached to this prompt (e.g., a PDF or image of handwritten notes). Please analyze the contents of the attached file." : ""}
-${assignmentText}
+${filePath ? "Part 1 of the prompt contains the student assignment file (PDF/Image)." : ""}
 
 EVALUATION RUBRIC (Total: ${totalMaxMarks} marks):
 ${rubricStr}
 
 INSTRUCTIONS:
-1. Carefully analyze the student's assignment (read the attached document if provided). It may contain handwritten text; do your best to read and transcribe it accurately for evaluation.
-2. Evaluate the student's assignment against each rubric parameter. Be highly accurate and objective.
-3. Award marks strictly within the max marks for each parameter.
-4. Provide specific, constructive, and detailed feedback for each parameter.
+1. CRITICAL: You must strictly correlate the student's assignment against the QUESTION PAPER and the MODEL ANSWER provided.
+2. Do not grade the student's assignment in isolation. Check if their answers actually solve the exact questions asked in the Question Paper.
+3. Compare their facts, formulas, and conceptual explanations directly against the Model Answer. Penalize hallucinated, irrelevant, or factually incorrect information that deviates from the Model Answer.
+4. Carefully analyze the student's assignment (read the attached document if provided). It may contain handwritten text; do your best to transcribe it accurately.
+5. Evaluate the student's assignment against each rubric parameter. Be highly accurate, objective, and reference where they succeeded or failed to match the Model Answer.
+6. Award marks strictly within the max marks for each parameter based on this factual correlation.
+7. Provide specific, constructive, and detailed feedback for each parameter specifically referencing how it compares to the model answer.
 5. Detect similarity risk (low/medium/high) — check if the text looks AI-generated or copied.
 6. List 3-5 specific strengths.
 7. List 3-5 actionable improvement suggestions.
@@ -111,30 +113,34 @@ async function callOpenAIAPI(prompt) {
 /**
  * Call Google Gemini API
  */
-async function callGeminiAPI(prompt, filePath, mimeType) {
+async function callGeminiAPI(prompt, filePaths) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
   const parts = [];
 
-  if (filePath) {
+  const addFilePart = async (fPath, mType) => {
+    if (!fPath) return;
     const supportedMimes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
-    let finalMimeType = mimeType;
+    let finalMimeType = mType || 'application/pdf'; // fallback default
 
-    // Cloudinary might store PDFs as images or we might get URL extensions
-    if (filePath.includes('.pdf') || mimeType === 'application/pdf') finalMimeType = 'application/pdf';
-    else if (!mimeType && filePath.match(/\.(jpeg|jpg|png|webp)$/i)) {
-      if (filePath.includes('.png')) finalMimeType = 'image/png';
-      else if (filePath.includes('.webp')) finalMimeType = 'image/webp';
+    if (fPath.includes('.pdf')) finalMimeType = 'application/pdf';
+    else if (fPath.match(/\.(jpeg|jpg|png|webp)$/i)) {
+      if (fPath.includes('.png')) finalMimeType = 'image/png';
+      else if (fPath.includes('.webp')) finalMimeType = 'image/webp';
       else finalMimeType = 'image/jpeg';
     }
 
     if (supportedMimes.includes(finalMimeType)) {
       let base64Data;
-      if (filePath.startsWith('http')) {
-        const response = await axios.get(filePath, { responseType: 'arraybuffer' });
-        base64Data = Buffer.from(response.data).toString('base64');
-      } else if (fs.existsSync(filePath)) {
-        base64Data = fs.readFileSync(filePath).toString('base64');
+      try {
+        if (fPath.startsWith('http')) {
+          const response = await axios.get(fPath, { responseType: 'arraybuffer' });
+          base64Data = Buffer.from(response.data).toString('base64');
+        } else if (fs.existsSync(fPath)) {
+          base64Data = fs.readFileSync(fPath).toString('base64');
+        }
+      } catch (e) {
+        console.error("Error fetching file for Gemini:", fPath, e.message);
       }
 
       if (base64Data) {
@@ -146,7 +152,14 @@ async function callGeminiAPI(prompt, filePath, mimeType) {
         });
       }
     }
-  }
+  };
+
+  // 1. Add student assignment
+  await addFilePart(filePaths.assignmentPath, filePaths.assignmentMimeType);
+  // 2. Add question paper
+  if (filePaths.questionPath) await addFilePart(filePaths.questionPath, null);
+  // 3. Add model answer
+  if (filePaths.modelAnswerPath) await addFilePart(filePaths.modelAnswerPath, null);
 
   parts.push({ text: prompt });
 
@@ -170,7 +183,12 @@ async function evaluateAssignment(params) {
     if (provider === "openai" && process.env.OPENAI_API_KEY) {
       rawResponse = await callOpenAIAPI(prompt);
     } else if (provider === "gemini" && process.env.GEMINI_API_KEY) {
-      rawResponse = await callGeminiAPI(prompt, params.filePath, params.mimeType);
+      rawResponse = await callGeminiAPI(prompt, {
+        assignmentPath: params.filePath,
+        assignmentMimeType: params.mimeType,
+        questionPath: params.questionPath,
+        modelAnswerPath: params.modelAnswerPath
+      });
     } else if (process.env.ANTHROPIC_API_KEY) {
       rawResponse = await callAnthropicAPI(prompt);
     } else {

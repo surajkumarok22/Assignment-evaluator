@@ -66,7 +66,9 @@ router.post("/evaluate", authMiddleware, restrictTo("student", "teacher"), uploa
       filePath: req.file.path,
       mimeType: req.file.mimetype,
       questionText,
+      questionPath: session?.questionPaperPath,
       modelAnswerText,
+      modelAnswerPath: session?.modelAnswerPath,
       rubricItems,
       settings,
     });
