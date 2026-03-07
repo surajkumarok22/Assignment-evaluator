@@ -1,6 +1,7 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
 import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -13,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import {
   Upload, FileText, Settings, CheckCircle2, ArrowLeft, BookOpen,
-  Plus, Trash2, Eye, Users, BarChart3, ClipboardList, Sparkles, AlertCircle
+  Plus, Trash2, Eye, Users, BarChart3, ClipboardList, Sparkles, AlertCircle, Clock, ChevronDown, ChevronUp
 } from "lucide-react";
 
 function FileDropzone({ onDrop, accept, label, icon: Icon, file }) {
@@ -26,9 +27,8 @@ function FileDropzone({ onDrop, accept, label, icon: Icon, file }) {
   return (
     <div
       {...getRootProps()}
-      className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-200 ${
-        isDragActive ? "border-primary bg-primary/5 scale-[1.02]" : file ? "border-emerald-400 bg-emerald-50" : "border-border hover:border-primary/50 hover:bg-muted/30"
-      }`}
+      className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-200 ${isDragActive ? "border-primary bg-primary/5 scale-[1.02]" : file ? "border-emerald-400 bg-emerald-50" : "border-border hover:border-primary/50 hover:bg-muted/30"
+        }`}
     >
       <input {...getInputProps()} />
       {file ? (
@@ -66,6 +66,52 @@ export default function FacultyPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [sessionId, setSessionId] = useState(null);
   const [error, setError] = useState("");
+  const { token, user, loading, logout } = useAuth();
+
+  const [historySessions, setHistorySessions] = useState([]);
+  const [sessionSubmissions, setSessionSubmissions] = useState({});
+  const [expandedSession, setExpandedSession] = useState(null);
+
+  const fetchHistory = useCallback(async () => {
+    try {
+      const res = await fetch("http://localhost:5000/api/faculty/sessions", {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) setHistorySessions(data.sessions);
+    } catch (e) { console.error(e); }
+  }, [token]);
+
+  const loadSubmissions = async (sessionId) => {
+    if (expandedSession === sessionId) {
+      setExpandedSession(null);
+      return;
+    }
+    setExpandedSession(sessionId);
+    if (!sessionSubmissions[sessionId]) {
+      try {
+        const res = await fetch(`http://localhost:5000/api/student/submissions/${sessionId}`, {
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (data.success) {
+          setSessionSubmissions(prev => ({ ...prev, [sessionId]: data.submissions }));
+        }
+      } catch (e) { console.error(e); }
+    }
+  };
+
+  useEffect(() => {
+    if (!loading && (!token || user?.role !== "teacher")) {
+      router.push("/login");
+    }
+  }, [token, user, loading, router]);
+
+  useEffect(() => {
+    if (activeTab === "history" && token) {
+      fetchHistory();
+    }
+  }, [activeTab, token, fetchHistory]);
 
   const totalRubricMarks = rubricItems.reduce((sum, r) => sum + Number(r.maxMarks), 0);
 
@@ -96,8 +142,11 @@ export default function FacultyPage() {
       formData.append("settings", JSON.stringify(settings));
       formData.append("rubricItems", JSON.stringify(rubricItems));
 
-      const res = await fetch("/api/backend/faculty/create-session", {
+      const res = await fetch("http://localhost:5000/api/faculty/create-session", {
         method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        },
         body: formData,
       });
       const data = await res.json();
@@ -136,6 +185,9 @@ export default function FacultyPage() {
               <p className="text-sm text-muted-foreground">Create & manage assignment evaluations</p>
             </div>
           </div>
+          <div className="ml-auto">
+            <Button variant="outline" onClick={logout}>Logout</Button>
+          </div>
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -148,6 +200,9 @@ export default function FacultyPage() {
             </TabsTrigger>
             <TabsTrigger value="review" disabled={!sessionId}>
               <Eye className="w-4 h-4 mr-2" />Review
+            </TabsTrigger>
+            <TabsTrigger value="history">
+              <Clock className="w-4 h-4 mr-2" />History
             </TabsTrigger>
           </TabsList>
 
@@ -425,6 +480,63 @@ export default function FacultyPage() {
                 </div>
               </div>
             )}
+          </TabsContent>
+
+          {/* History Tab */}
+          <TabsContent value="history" className="animate-fade-in">
+            <Card className="shadow-sm border-0 bg-white/80">
+              <CardHeader>
+                <CardTitle className="text-lg">Past Sessions</CardTitle>
+                <CardDescription>View your previously created evaluation sessions and student submissions.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {historySessions.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-8">No previous sessions found.</p>
+                ) : (
+                  historySessions.map(session => (
+                    <div key={session.sessionId} className="border border-border/50 rounded-xl overflow-hidden">
+                      <button
+                        className="w-full flex items-center justify-between p-4 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
+                        onClick={() => loadSubmissions(session.sessionId)}
+                      >
+                        <div>
+                          <p className="font-semibold text-sm">{session.title} <span className="text-xs text-muted-foreground ml-2 font-mono">{session.sessionId}</span></p>
+                          <p className="text-xs text-muted-foreground">{session.subject} • {session.settings?.difficulty}</p>
+                        </div>
+                        {expandedSession === session.sessionId ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                      </button>
+
+                      {expandedSession === session.sessionId && (
+                        <div className="p-4 bg-white border-t border-border/50">
+                          {(!sessionSubmissions[session.sessionId] ? (
+                            <div className="flex justify-center py-4"><div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin"></div></div>
+                          ) : sessionSubmissions[session.sessionId].length === 0 ? (
+                            <p className="text-sm text-center text-muted-foreground py-2">No submissions yet for this session.</p>
+                          ) : (
+                            <div className="space-y-3">
+                              {sessionSubmissions[session.sessionId].map(sub => (
+                                <div key={sub._id} className="flex items-center justify-between p-3 border rounded-lg hover:border-primary/30 transition-colors">
+                                  <div>
+                                    <p className="font-medium text-sm">{sub.studentName}</p>
+                                    <p className="text-xs text-muted-foreground">{new Date(sub.evaluatedAt).toLocaleString()}</p>
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                    <Badge variant={sub.result.percentage >= 75 ? "success" : sub.result.percentage >= 50 ? "warning" : "danger"}>
+                                      {sub.result.percentage}%
+                                    </Badge>
+                                    <p className="text-sm font-bold">{sub.result.totalMarks}/{sub.result.maxMarks}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>

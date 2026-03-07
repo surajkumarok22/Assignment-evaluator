@@ -116,16 +116,35 @@ async function callGeminiAPI(prompt, filePath, mimeType) {
 
   const parts = [];
 
-  if (filePath && fs.existsSync(filePath)) {
+  if (filePath) {
     const supportedMimes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
-    if (supportedMimes.includes(mimeType)) {
-      const base64Data = fs.readFileSync(filePath).toString('base64');
-      parts.push({
-        inlineData: {
-          mimeType: mimeType,
-          data: base64Data
-        }
-      });
+    let finalMimeType = mimeType;
+
+    // Cloudinary might store PDFs as images or we might get URL extensions
+    if (filePath.includes('.pdf') || mimeType === 'application/pdf') finalMimeType = 'application/pdf';
+    else if (!mimeType && filePath.match(/\.(jpeg|jpg|png|webp)$/i)) {
+      if (filePath.includes('.png')) finalMimeType = 'image/png';
+      else if (filePath.includes('.webp')) finalMimeType = 'image/webp';
+      else finalMimeType = 'image/jpeg';
+    }
+
+    if (supportedMimes.includes(finalMimeType)) {
+      let base64Data;
+      if (filePath.startsWith('http')) {
+        const response = await axios.get(filePath, { responseType: 'arraybuffer' });
+        base64Data = Buffer.from(response.data).toString('base64');
+      } else if (fs.existsSync(filePath)) {
+        base64Data = fs.readFileSync(filePath).toString('base64');
+      }
+
+      if (base64Data) {
+        parts.push({
+          inlineData: {
+            mimeType: finalMimeType,
+            data: base64Data
+          }
+        });
+      }
     }
   }
 
@@ -133,7 +152,7 @@ async function callGeminiAPI(prompt, filePath, mimeType) {
 
   const response = await axios.post(url, {
     contents: [{ role: "user", parts: parts }],
-    generationConfig: { temperature: 0.2, maxOutputTokens: 2048 },
+    generationConfig: { temperature: 0.2, maxOutputTokens: 8192 },
   });
   return response.data.candidates[0].content.parts[0].text;
 }
@@ -164,8 +183,13 @@ async function evaluateAssignment(params) {
 
   // Parse and clean JSON response
   try {
-    const cleaned = rawResponse.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    const result = JSON.parse(cleaned);
+    let jsonStr = rawResponse;
+    const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      jsonStr = jsonMatch[0];
+    }
+
+    const result = JSON.parse(jsonStr);
     // Validate required fields
     if (!result.scores || !Array.isArray(result.scores)) {
       throw new Error("Invalid response structure");

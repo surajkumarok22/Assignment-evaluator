@@ -1,30 +1,10 @@
 const express = require("express");
 const router = express.Router();
-const multer = require("multer");
-const path = require("path");
 const { v4: uuidv4 } = require("uuid");
 const { Session } = require("../models");
 const { extractText } = require("../extractText");
-
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, path.join(__dirname, "../uploads")),
-  filename: (req, file, cb) => {
-    const uniqueName = `${Date.now()}-${Math.random().toString(36).substring(7)}${path.extname(file.originalname)}`;
-    cb(null, uniqueName);
-  },
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: (parseInt(process.env.MAX_FILE_SIZE_MB) || 10) * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    const allowed = [".pdf", ".doc", ".docx"];
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (allowed.includes(ext)) cb(null, true);
-    else cb(new Error("Only PDF and Word documents are allowed"));
-  },
-});
+const { uploadCloud } = require("../utils/cloudinary");
+const { authMiddleware, restrictTo } = require("../middleware/auth");
 
 /**
  * POST /api/faculty/create-session
@@ -32,7 +12,9 @@ const upload = multer({
  */
 router.post(
   "/create-session",
-  upload.fields([
+  authMiddleware,
+  restrictTo("teacher"),
+  uploadCloud.fields([
     { name: "questionPaper", maxCount: 1 },
     { name: "modelAnswer", maxCount: 1 },
     { name: "rubricFile", maxCount: 1 },
@@ -69,6 +51,7 @@ router.post(
       // Save session to database
       const session = new Session({
         sessionId,
+        createdBy: req.user.id,
         title: settings.title,
         subject: settings.subject,
         questionPaperPath,
@@ -101,9 +84,9 @@ router.post(
  * GET /api/faculty/sessions
  * Get all sessions (for faculty dashboard)
  */
-router.get("/sessions", async (req, res) => {
+router.get("/sessions", authMiddleware, restrictTo("teacher"), async (req, res) => {
   try {
-    const sessions = await Session.find().sort({ createdAt: -1 }).select("-questionPaperText -modelAnswerText");
+    const sessions = await Session.find({ createdBy: req.user.id }).sort({ createdAt: -1 }).select("-questionPaperText -modelAnswerText");
     res.json({ success: true, sessions });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -114,7 +97,7 @@ router.get("/sessions", async (req, res) => {
  * GET /api/faculty/session/:sessionId
  * Get a specific session details
  */
-router.get("/session/:sessionId", async (req, res) => {
+router.get("/session/:sessionId", authMiddleware, async (req, res) => {
   try {
     const session = await Session.findOne({ sessionId: req.params.sessionId });
     if (!session) return res.status(404).json({ success: false, message: "Session not found." });

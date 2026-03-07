@@ -9,6 +9,7 @@ const rateLimit = require("express-rate-limit");
 
 const facultyRoutes = require("./routes/faculty");
 const studentRoutes = require("./routes/student");
+const authRoutes = require("./routes/auth");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -43,6 +44,7 @@ app.get("/health", (req, res) => {
 });
 
 // Routes
+app.use("/api/auth", authRoutes);
 app.use("/api/faculty", facultyRoutes);
 app.use("/api/student", studentRoutes);
 
@@ -63,7 +65,7 @@ app.use((err, req, res, next) => {
 // Connect to MongoDB and start server
 async function start() {
   const mongoUri = process.env.MONGODB_URI || "mongodb://localhost:27017/ai-evaluator";
-  
+
   try {
     await mongoose.connect(mongoUri);
     console.log("✅ Connected to MongoDB");

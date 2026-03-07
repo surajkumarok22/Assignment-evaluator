@@ -1,6 +1,7 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
 import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -9,10 +10,11 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Upload, FileText, GraduationCap, ArrowLeft, CheckCircle2, XCircle,
   AlertTriangle, Lightbulb, ChevronDown, ChevronUp, Sparkles, BarChart3,
-  TrendingUp, AlertCircle, BookOpen, Star, Target
+  TrendingUp, AlertCircle, BookOpen, Star, Target, Clock, Eye
 } from "lucide-react";
 import { RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer, Tooltip } from "recharts";
 
@@ -25,9 +27,8 @@ function FileDropzone({ onDrop, file }) {
   return (
     <div
       {...getRootProps()}
-      className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all duration-200 ${
-        isDragActive ? "border-primary bg-primary/5 scale-[1.01]" : file ? "border-emerald-400 bg-emerald-50" : "border-border hover:border-primary/50 hover:bg-muted/30"
-      }`}
+      className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all duration-200 ${isDragActive ? "border-primary bg-primary/5 scale-[1.01]" : file ? "border-emerald-400 bg-emerald-50" : "border-border hover:border-primary/50 hover:bg-muted/30"
+        }`}
     >
       <input {...getInputProps()} />
       {file ? (
@@ -98,6 +99,32 @@ export default function StudentPage() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const [expandedParam, setExpandedParam] = useState(null);
+  const { token, user, loading, logout } = useAuth();
+
+  const [activeTab, setActiveTab] = useState("new");
+  const [historySubmissions, setHistorySubmissions] = useState([]);
+
+  const fetchMySubmissions = useCallback(async () => {
+    try {
+      const res = await fetch("http://localhost:5000/api/student/my-submissions", {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) setHistorySubmissions(data.submissions);
+    } catch (e) { console.error(e); }
+  }, [token]);
+
+  useEffect(() => {
+    if (!loading && (!token || (user?.role !== "student" && user?.role !== "teacher"))) {
+      router.push("/login"); // Both students and teachers can test evaluation
+    }
+  }, [token, user, loading, router]);
+
+  useEffect(() => {
+    if (activeTab === "history" && token) {
+      fetchMySubmissions();
+    }
+  }, [activeTab, token, fetchMySubmissions]);
 
   const handleEvaluate = async () => {
     if (!file) { setError("Please upload your assignment file."); return; }
@@ -109,7 +136,11 @@ export default function StudentPage() {
       formData.append("assignment", file);
       formData.append("sessionId", sessionId || "DEMO");
       formData.append("studentName", studentName);
-      const res = await fetch("/api/backend/student/evaluate", { method: "POST", body: formData });
+      const res = await fetch("http://localhost:5000/api/student/evaluate", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}` },
+        body: formData
+      });
       const data = await res.json();
       if (data.success) setResult(data.result);
       else { setError(data.message || "Evaluation failed."); }
@@ -120,6 +151,7 @@ export default function StudentPage() {
     }
     setIsEvaluating(false);
   };
+
 
   const radarData = result?.scores.map(s => ({
     subject: s.parameter.replace(" ", "\n"),
@@ -150,228 +182,278 @@ export default function StudentPage() {
               <p className="text-sm text-muted-foreground">Submit your assignment for AI evaluation</p>
             </div>
           </div>
+          <div className="ml-auto">
+            <Button variant="outline" onClick={logout}>Logout</Button>
+          </div>
         </div>
 
-        {!result ? (
-          <div className="space-y-6 animate-fade-in">
-            <Card className="shadow-sm border-0 bg-white/80">
-              <CardHeader>
-                <CardTitle className="text-lg">Assignment Submission</CardTitle>
-                <CardDescription>Enter your details and upload your assignment to get instant AI feedback</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-5">
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Your Name *</Label>
-                    <Input placeholder="Narendra Gandhi" value={studentName} onChange={(e) => setStudentName(e.target.value)} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Session ID <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                    <Input placeholder="Enter session ID from faculty" value={sessionId} onChange={(e) => setSessionId(e.target.value)} />
-                  </div>
-                </div>
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="mb-6 bg-white/80 shadow-sm">
+            <TabsTrigger value="new" onClick={() => setResult(null)}>
+              <Upload className="w-4 h-4 mr-2" />New Submission
+            </TabsTrigger>
+            <TabsTrigger value="history">
+              <Clock className="w-4 h-4 mr-2" />My History
+            </TabsTrigger>
+          </TabsList>
 
-                <div className="space-y-2">
-                  <Label>Upload Assignment *</Label>
-                  <FileDropzone onDrop={setFile} file={file} />
-                </div>
-
-                {error && (
-                  <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-4 py-3">
-                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                    {error}
-                  </div>
-                )}
-
-                <Button size="lg" className="w-full" onClick={handleEvaluate} disabled={isEvaluating || !file}>
-                  {isEvaluating ? (
-                    <div className="flex items-center gap-3">
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      <span>AI is evaluating your assignment...</span>
-                    </div>
-                  ) : (
-                    <>
-                      <Sparkles className="w-5 h-5 mr-2" />
-                      Evaluate with AI
-                    </>
-                  )}
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* Evaluation criteria preview */}
-            <Card className="shadow-sm border-0 bg-white/80">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">What will be evaluated?</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  {[
-                    { label: "Concept Accuracy", icon: BookOpen, color: "text-blue-600 bg-blue-100" },
-                    { label: "Completeness", icon: CheckCircle2, color: "text-emerald-600 bg-emerald-100" },
-                    { label: "Relevance", icon: Target, color: "text-indigo-600 bg-indigo-100" },
-                    { label: "Language Quality", icon: Star, color: "text-amber-600 bg-amber-100" },
-                    { label: "Structure", icon: BarChart3, color: "text-purple-600 bg-purple-100" },
-                    { label: "Similarity Risk", icon: AlertTriangle, color: "text-red-600 bg-red-100" },
-                  ].map(({ label, icon: Icon, color }) => (
-                    <div key={label} className="flex items-center gap-2 bg-muted/30 rounded-lg px-3 py-2">
-                      <div className={`w-7 h-7 rounded-lg ${color} flex items-center justify-center flex-shrink-0`}>
-                        <Icon className="w-3.5 h-3.5" />
+          <TabsContent value="new">
+            {!result ? (
+              <div className="space-y-6 animate-fade-in">
+                <Card className="shadow-sm border-0 bg-white/80">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Assignment Submission</CardTitle>
+                    <CardDescription>Enter your details and upload your assignment to get instant AI feedback</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-5">
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Your Name *</Label>
+                        <Input placeholder="eg: Narendra" value={studentName} onChange={(e) => setStudentName(e.target.value)} />
                       </div>
-                      <span className="text-xs font-medium">{label}</span>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        ) : (
-          /* Results View */
-          <div className="space-y-6 animate-fade-in">
-            {/* Score Hero */}
-            <Card className={`shadow-sm border-2 bg-gradient-to-br ${gradeBg}`}>
-              <CardContent className="pt-6">
-                <div className="flex flex-col sm:flex-row items-center gap-6">
-                  <div className="text-center">
-                    <div className="relative w-32 h-32 mx-auto">
-                      <svg className="w-32 h-32 -rotate-90" viewBox="0 0 120 120">
-                        <circle cx="60" cy="60" r="50" fill="none" stroke="currentColor" className="text-white/50" strokeWidth="10" />
-                        <circle
-                          cx="60" cy="60" r="50" fill="none"
-                          stroke="url(#scoreGrad)" strokeWidth="10"
-                          strokeDasharray={`${2 * Math.PI * 50}`}
-                          strokeDashoffset={`${2 * Math.PI * 50 * (1 - result.percentage / 100)}`}
-                          strokeLinecap="round"
-                          className="transition-all duration-1000"
-                        />
-                        <defs>
-                          <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                            <stop offset="0%" stopColor="hsl(221,83%,53%)" />
-                            <stop offset="100%" stopColor="hsl(262,83%,58%)" />
-                          </linearGradient>
-                        </defs>
-                      </svg>
-                      <div className="absolute inset-0 flex flex-col items-center justify-center">
-                        <span className={`text-3xl font-extrabold ${gradeColor}`}>{result.grade}</span>
-                        <span className="text-xs text-muted-foreground">{result.percentage}%</span>
+                      <div className="space-y-2">
+                        <Label>Session ID <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                        <Input placeholder="Enter session ID from faculty" value={sessionId} onChange={(e) => setSessionId(e.target.value)} />
                       </div>
                     </div>
-                    <p className="font-bold text-2xl mt-2">{result.totalMarks} <span className="text-muted-foreground text-base font-normal">/ {result.maxMarks}</span></p>
-                    <p className="text-sm text-muted-foreground">Total Score</p>
-                  </div>
 
-                  <div className="flex-1 space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Badge variant={result.similarityRisk === "low" ? "success" : result.similarityRisk === "medium" ? "warning" : "danger"}>
-                        Similarity Risk: {result.similarityRisk?.toUpperCase()}
-                      </Badge>
+                    <div className="space-y-2">
+                      <Label>Upload Assignment *</Label>
+                      <FileDropzone onDrop={setFile} file={file} />
                     </div>
-                    <p className="text-sm text-foreground/80 leading-relaxed italic">"{result.aiComment}"</p>
-                    <Button variant="outline" size="sm" onClick={() => { setResult(null); setFile(null); }} className="text-xs">
-                      ← Submit Another Assignment
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
 
-            <div className="grid lg:grid-cols-2 gap-6">
-              {/* Radar Chart */}
-              <Card className="shadow-sm border-0 bg-white/80">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <BarChart3 className="w-4 h-4 text-primary" />
-                    Performance Radar
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <RadarChart data={radarData}>
-                      <PolarGrid stroke="hsl(var(--border))" />
-                      <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-                      <Radar name="Score" dataKey="score" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.2} strokeWidth={2} />
-                      <Tooltip formatter={(v) => [`${v}%`]} />
-                    </RadarChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-
-              {/* Strengths */}
-              <Card className="shadow-sm border-0 bg-white/80">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-emerald-600" />
-                    Strengths
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ul className="space-y-2">
-                    {result.strengths.map((s, i) => (
-                      <li key={i} className="flex items-start gap-2 text-sm">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 flex-shrink-0" />
-                        <span>{s}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Parameter Breakdown */}
-            <Card className="shadow-sm border-0 bg-white/80">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Detailed Parameter Breakdown</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {result.scores.map((item, idx) => (
-                  <div key={idx} className="border border-border/50 rounded-xl overflow-hidden">
-                    <button
-                      className="w-full flex items-center gap-4 p-4 hover:bg-muted/20 transition-colors text-left"
-                      onClick={() => setExpandedParam(expandedParam === idx ? null : idx)}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-3 mb-2">
-                          <span className="font-semibold text-sm">{item.parameter}</span>
-                          <ScoreBadge score={item.score} max={item.maxScore} />
-                          {item.status === "good" && <Badge variant="success" className="text-xs">Excellent</Badge>}
-                          {item.status === "partial" && <Badge variant="warning" className="text-xs">Needs Work</Badge>}
-                          {item.status === "poor" && <Badge variant="danger" className="text-xs">Poor</Badge>}
-                        </div>
-                        <Progress value={(item.score / item.maxScore) * 100} className="h-2" />
-                      </div>
-                      {expandedParam === idx ? <ChevronUp className="w-4 h-4 text-muted-foreground flex-shrink-0" /> : <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />}
-                    </button>
-                    {expandedParam === idx && (
-                      <div className="px-4 pb-4 bg-muted/10 border-t border-border/50">
-                        <p className="text-sm text-foreground/80 mt-3 leading-relaxed">{item.feedback}</p>
+                    {error && (
+                      <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-4 py-3">
+                        <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                        {error}
                       </div>
                     )}
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
 
-            {/* Improvement Suggestions */}
-            <Card className="shadow-sm border-0 bg-gradient-to-br from-amber-50 to-orange-50 border-amber-200">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Lightbulb className="w-4 h-4 text-amber-600" />
-                  Improvement Suggestions
-                </CardTitle>
+                    <Button size="lg" className="w-full" onClick={handleEvaluate} disabled={isEvaluating || !file}>
+                      {isEvaluating ? (
+                        <div className="flex items-center gap-3">
+                          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          <span>AI is evaluating your assignment...</span>
+                        </div>
+                      ) : (
+                        <>
+                          <Sparkles className="w-5 h-5 mr-2" />
+                          Evaluate with AI
+                        </>
+                      )}
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                {/* Evaluation criteria preview */}
+                <Card className="shadow-sm border-0 bg-white/80">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">What will be evaluated?</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {[
+                        { label: "Concept Accuracy", icon: BookOpen, color: "text-blue-600 bg-blue-100" },
+                        { label: "Completeness", icon: CheckCircle2, color: "text-emerald-600 bg-emerald-100" },
+                        { label: "Relevance", icon: Target, color: "text-indigo-600 bg-indigo-100" },
+                        { label: "Language Quality", icon: Star, color: "text-amber-600 bg-amber-100" },
+                        { label: "Structure", icon: BarChart3, color: "text-purple-600 bg-purple-100" },
+                        { label: "Similarity Risk", icon: AlertTriangle, color: "text-red-600 bg-red-100" },
+                      ].map(({ label, icon: Icon, color }) => (
+                        <div key={label} className="flex items-center gap-2 bg-muted/30 rounded-lg px-3 py-2">
+                          <div className={`w-7 h-7 rounded-lg ${color} flex items-center justify-center flex-shrink-0`}>
+                            <Icon className="w-3.5 h-3.5" />
+                          </div>
+                          <span className="text-xs font-medium">{label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : (
+              /* Results View */
+              <div className="space-y-6 animate-fade-in">
+                {/* Score Hero */}
+                <Card className={`shadow-sm border-2 bg-gradient-to-br ${gradeBg}`}>
+                  <CardContent className="pt-6">
+                    <div className="flex flex-col sm:flex-row items-center gap-6">
+                      <div className="text-center">
+                        <div className="relative w-32 h-32 mx-auto">
+                          <svg className="w-32 h-32 -rotate-90" viewBox="0 0 120 120">
+                            <circle cx="60" cy="60" r="50" fill="none" stroke="currentColor" className="text-white/50" strokeWidth="10" />
+                            <circle
+                              cx="60" cy="60" r="50" fill="none"
+                              stroke="url(#scoreGrad)" strokeWidth="10"
+                              strokeDasharray={`${2 * Math.PI * 50}`}
+                              strokeDashoffset={`${2 * Math.PI * 50 * (1 - result.percentage / 100)}`}
+                              strokeLinecap="round"
+                              className="transition-all duration-1000"
+                            />
+                            <defs>
+                              <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stopColor="hsl(221,83%,53%)" />
+                                <stop offset="100%" stopColor="hsl(262,83%,58%)" />
+                              </linearGradient>
+                            </defs>
+                          </svg>
+                          <div className="absolute inset-0 flex flex-col items-center justify-center">
+                            <span className={`text-3xl font-extrabold ${gradeColor}`}>{result.grade}</span>
+                            <span className="text-xs text-muted-foreground">{result.percentage}%</span>
+                          </div>
+                        </div>
+                        <p className="font-bold text-2xl mt-2">{result.totalMarks} <span className="text-muted-foreground text-base font-normal">/ {result.maxMarks}</span></p>
+                        <p className="text-sm text-muted-foreground">Total Score</p>
+                      </div>
+
+                      <div className="flex-1 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <Badge variant={result.similarityRisk === "low" ? "success" : result.similarityRisk === "medium" ? "warning" : "danger"}>
+                            Similarity Risk: {result.similarityRisk?.toUpperCase()}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-foreground/80 leading-relaxed italic">"{result.aiComment}"</p>
+                        <Button variant="outline" size="sm" onClick={() => { setResult(null); setFile(null); }} className="text-xs">
+                          ← Submit Another Assignment
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <div className="grid lg:grid-cols-2 gap-6">
+                  {/* Radar Chart */}
+                  <Card className="shadow-sm border-0 bg-white/80">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <BarChart3 className="w-4 h-4 text-primary" />
+                        Performance Radar
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={220}>
+                        <RadarChart data={radarData}>
+                          <PolarGrid stroke="hsl(var(--border))" />
+                          <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                          <Radar name="Score" dataKey="score" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.2} strokeWidth={2} />
+                          <Tooltip formatter={(v) => [`${v}%`]} />
+                        </RadarChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+
+                  {/* Strengths */}
+                  <Card className="shadow-sm border-0 bg-white/80">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <TrendingUp className="w-4 h-4 text-emerald-600" />
+                        Strengths
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ul className="space-y-2">
+                        {result.strengths.map((s, i) => (
+                          <li key={i} className="flex items-start gap-2 text-sm">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 flex-shrink-0" />
+                            <span>{s}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Parameter Breakdown */}
+                <Card className="shadow-sm border-0 bg-white/80">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Detailed Parameter Breakdown</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {result.scores.map((item, idx) => (
+                      <div key={idx} className="border border-border/50 rounded-xl overflow-hidden">
+                        <button
+                          className="w-full flex items-center gap-4 p-4 hover:bg-muted/20 transition-colors text-left"
+                          onClick={() => setExpandedParam(expandedParam === idx ? null : idx)}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-3 mb-2">
+                              <span className="font-semibold text-sm">{item.parameter}</span>
+                              <ScoreBadge score={item.score} max={item.maxScore} />
+                              {item.status === "good" && <Badge variant="success" className="text-xs">Excellent</Badge>}
+                              {item.status === "partial" && <Badge variant="warning" className="text-xs">Needs Work</Badge>}
+                              {item.status === "poor" && <Badge variant="danger" className="text-xs">Poor</Badge>}
+                            </div>
+                            <Progress value={(item.score / item.maxScore) * 100} className="h-2" />
+                          </div>
+                          {expandedParam === idx ? <ChevronUp className="w-4 h-4 text-muted-foreground flex-shrink-0" /> : <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />}
+                        </button>
+                        {expandedParam === idx && (
+                          <div className="px-4 pb-4 bg-muted/10 border-t border-border/50">
+                            <p className="text-sm text-foreground/80 mt-3 leading-relaxed">{item.feedback}</p>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+
+                {/* Improvement Suggestions */}
+                <Card className="shadow-sm border-0 bg-gradient-to-br from-amber-50 to-orange-50 border-amber-200">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Lightbulb className="w-4 h-4 text-amber-600" />
+                      Improvement Suggestions
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ul className="space-y-2">
+                      {result.improvements.map((tip, i) => (
+                        <li key={i} className="flex items-start gap-2 text-sm">
+                          <span className="w-5 h-5 rounded-full gradient-bg text-white text-xs flex items-center justify-center flex-shrink-0 font-bold mt-0.5">{i + 1}</span>
+                          <span>{tip}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="history" className="animate-fade-in">
+            <Card className="shadow-sm border-0 bg-white/80">
+              <CardHeader>
+                <CardTitle className="text-lg">My Submissions</CardTitle>
+                <CardDescription>View your past assignment evaluations and scores.</CardDescription>
               </CardHeader>
-              <CardContent>
-                <ul className="space-y-2">
-                  {result.improvements.map((tip, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm">
-                      <span className="w-5 h-5 rounded-full gradient-bg text-white text-xs flex items-center justify-center flex-shrink-0 font-bold mt-0.5">{i + 1}</span>
-                      <span>{tip}</span>
-                    </li>
-                  ))}
-                </ul>
+              <CardContent className="space-y-4">
+                {historySubmissions.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-8">You haven't submitted any assignments yet.</p>
+                ) : (
+                  historySubmissions.map(sub => (
+                    <div key={sub._id} className="border border-border/50 rounded-xl p-4 bg-muted/30 hover:bg-muted/50 transition-colors">
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <p className="font-semibold">Session: <span className="font-mono text-purple-700">{sub.sessionId}</span></p>
+                          <p className="text-xs text-muted-foreground">{new Date(sub.evaluatedAt).toLocaleString()}</p>
+                        </div>
+                        <div className="text-right">
+                          <Badge variant={sub.result?.percentage >= 75 ? "success" : sub.result?.percentage >= 50 ? "warning" : "danger"}>
+                            {sub.result?.percentage || 0}%
+                          </Badge>
+                          <p className="text-sm font-bold mt-1 text-center">{sub.result?.totalMarks}/{sub.result?.maxMarks}</p>
+                        </div>
+                      </div>
+                      <Button variant="outline" size="sm" className="w-full text-xs" onClick={() => { setResult(sub.result); setActiveTab("new"); }}>
+                        <Eye className="w-3 h-3 mr-2" /> View Detailed Feedback
+                      </Button>
+                    </div>
+                  ))
+                )}
               </CardContent>
             </Card>
-          </div>
-        )}
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );

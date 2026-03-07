@@ -1,13 +1,24 @@
 const mongoose = require("mongoose");
 
-// Evaluation Session (created by faculty)
+// User Account
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  role: { type: String, enum: ["teacher", "student"], required: true },
+  avatarUrl: { type: String, default: "" }, // Cloudinary URL
+  createdAt: { type: Date, default: Date.now },
+});
+
+// Evaluation Session (created by teacher)
 const sessionSchema = new mongoose.Schema({
   sessionId: { type: String, required: true, unique: true },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   title: { type: String, required: true },
   subject: { type: String, required: true },
-  questionPaperPath: String,
+  questionPaperPath: String, // Storing cloudinary URL
   questionPaperText: String,
-  modelAnswerPath: String,
+  modelAnswerPath: String, // Storing cloudinary URL
   modelAnswerText: String,
   settings: {
     difficulty: { type: String, enum: ["easy", "medium", "hard"], default: "medium" },
@@ -25,6 +36,7 @@ const sessionSchema = new mongoose.Schema({
 // Submission (by student)
 const submissionSchema = new mongoose.Schema({
   sessionId: { type: String, required: true },
+  studentId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   studentName: { type: String, required: true },
   assignmentPath: String,
   assignmentText: String,
@@ -48,7 +60,8 @@ const submissionSchema = new mongoose.Schema({
   evaluatedAt: { type: Date, default: Date.now },
 });
 
+const User = mongoose.model("User", userSchema);
 const Session = mongoose.model("Session", sessionSchema);
 const Submission = mongoose.model("Submission", submissionSchema);
 
-module.exports = { Session, Submission };
+module.exports = { User, Session, Submission };

@@ -1,30 +1,10 @@
 const express = require("express");
 const router = express.Router();
-const multer = require("multer");
-const path = require("path");
 const { Session, Submission } = require("../models");
 const { extractText } = require("../extractText");
 const { evaluateAssignment } = require("../aiService");
-
-// Multer config for student uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, path.join(__dirname, "../uploads")),
-  filename: (req, file, cb) => {
-    const uniqueName = `student-${Date.now()}-${Math.random().toString(36).substring(7)}${path.extname(file.originalname)}`;
-    cb(null, uniqueName);
-  },
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: (parseInt(process.env.MAX_FILE_SIZE_MB) || 10) * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    const allowed = [".pdf", ".doc", ".docx"];
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (allowed.includes(ext)) cb(null, true);
-    else cb(new Error("Only PDF and Word documents are allowed"));
-  },
-});
+const { uploadCloud } = require("../utils/cloudinary");
+const { authMiddleware, restrictTo } = require("../middleware/auth");
 
 /**
  * Default rubric used when no session is found
@@ -41,7 +21,7 @@ const DEFAULT_RUBRIC = [
  * POST /api/student/evaluate
  * Submit assignment for AI evaluation
  */
-router.post("/evaluate", upload.single("assignment"), async (req, res) => {
+router.post("/evaluate", authMiddleware, restrictTo("student", "teacher"), uploadCloud.single("assignment"), async (req, res) => {
   try {
     const { sessionId, studentName } = req.body;
 
@@ -94,6 +74,7 @@ router.post("/evaluate", upload.single("assignment"), async (req, res) => {
     // Save submission to database
     const submission = new Submission({
       sessionId: sessionId || "DEMO",
+      studentId: req.user.id,
       studentName,
       assignmentPath: req.file.path,
       assignmentText,
@@ -112,9 +93,22 @@ router.post("/evaluate", upload.single("assignment"), async (req, res) => {
  * GET /api/student/submissions/:sessionId
  * Get all submissions for a session (faculty view)
  */
-router.get("/submissions/:sessionId", async (req, res) => {
+router.get("/submissions/:sessionId", authMiddleware, restrictTo("teacher"), async (req, res) => {
   try {
     const submissions = await Submission.find({ sessionId: req.params.sessionId }).sort({ evaluatedAt: -1 });
+    res.json({ success: true, submissions });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+/**
+ * GET /api/student/my-submissions
+ * Get all submissions for the currently logged-in student
+ */
+router.get("/my-submissions", authMiddleware, restrictTo("student"), async (req, res) => {
+  try {
+    const submissions = await Submission.find({ studentId: req.user.id }).sort({ evaluatedAt: -1 });
     res.json({ success: true, submissions });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
