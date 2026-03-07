@@ -1,11 +1,12 @@
 const Anthropic = require("@anthropic-ai/sdk");
 const axios = require("axios");
+const fs = require("fs");
 
 /**
  * Builds the evaluation prompt using rubric-based controlled prompting
  * to reduce hallucination and ensure consistent scoring.
  */
-function buildEvaluationPrompt({ assignmentText, questionText, modelAnswerText, rubricItems, settings }) {
+function buildEvaluationPrompt({ assignmentText, questionText, modelAnswerText, rubricItems, settings, filePath }) {
   const rubricStr = rubricItems
     .map((r, i) => `${i + 1}. ${r.parameter} (max ${r.maxMarks} marks): ${r.description}`)
     .join("\n");
@@ -34,18 +35,20 @@ ${questionText ? `QUESTION PAPER:\n${questionText}\n` : ""}
 ${modelAnswerText ? `MODEL ANSWER (use as reference, not as exact match requirement):\n${modelAnswerText}\n` : ""}
 
 STUDENT ASSIGNMENT TO EVALUATE:
+${filePath ? "A file is attached to this prompt (e.g., a PDF or image of handwritten notes). Please analyze the contents of the attached file." : ""}
 ${assignmentText}
 
 EVALUATION RUBRIC (Total: ${totalMaxMarks} marks):
 ${rubricStr}
 
 INSTRUCTIONS:
-1. Evaluate the student's assignment against each rubric parameter
-2. Award marks strictly within the max marks for each parameter
-3. Provide specific, constructive feedback for each parameter
-4. Detect similarity risk (low/medium/high) — check if the text looks AI-generated or copied
-5. List 3-5 specific strengths
-6. List 3-5 actionable improvement suggestions
+1. Carefully analyze the student's assignment (read the attached document if provided). It may contain handwritten text; do your best to read and transcribe it accurately for evaluation.
+2. Evaluate the student's assignment against each rubric parameter. Be highly accurate and objective.
+3. Award marks strictly within the max marks for each parameter.
+4. Provide specific, constructive, and detailed feedback for each parameter.
+5. Detect similarity risk (low/medium/high) — check if the text looks AI-generated or copied.
+6. List 3-5 specific strengths.
+7. List 3-5 actionable improvement suggestions.
 7. Write a brief overall comment (2-3 sentences)
 8. Calculate grade: A+ (95-100%), A (85-94%), B+ (75-84%), B (65-74%), C (50-64%), D (35-49%), F (<35%)
 
@@ -108,11 +111,29 @@ async function callOpenAIAPI(prompt) {
 /**
  * Call Google Gemini API
  */
-async function callGeminiAPI(prompt) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+async function callGeminiAPI(prompt, filePath, mimeType) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${process.env.GEMINI_API_KEY}`;
+
+  const parts = [];
+
+  if (filePath && fs.existsSync(filePath)) {
+    const supportedMimes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+    if (supportedMimes.includes(mimeType)) {
+      const base64Data = fs.readFileSync(filePath).toString('base64');
+      parts.push({
+        inlineData: {
+          mimeType: mimeType,
+          data: base64Data
+        }
+      });
+    }
+  }
+
+  parts.push({ text: prompt });
+
   const response = await axios.post(url, {
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.3, maxOutputTokens: 2000 },
+    contents: [{ role: "user", parts: parts }],
+    generationConfig: { temperature: 0.2, maxOutputTokens: 2048 },
   });
   return response.data.candidates[0].content.parts[0].text;
 }
@@ -130,14 +151,14 @@ async function evaluateAssignment(params) {
     if (provider === "openai" && process.env.OPENAI_API_KEY) {
       rawResponse = await callOpenAIAPI(prompt);
     } else if (provider === "gemini" && process.env.GEMINI_API_KEY) {
-      rawResponse = await callGeminiAPI(prompt);
+      rawResponse = await callGeminiAPI(prompt, params.filePath, params.mimeType);
     } else if (process.env.ANTHROPIC_API_KEY) {
       rawResponse = await callAnthropicAPI(prompt);
     } else {
       throw new Error("No AI API key configured");
     }
   } catch (err) {
-    console.error("AI API error:", err.message);
+    console.error("AI API error:", err.response ? JSON.stringify(err.response.data) : err.message);
     throw new Error(`AI evaluation failed: ${err.message}`);
   }
 

@@ -53,12 +53,19 @@ router.post("/evaluate", upload.single("assignment"), async (req, res) => {
     }
 
     // Extract text from uploaded assignment
-    const assignmentText = await extractText(req.file.path);
-    if (!assignmentText || assignmentText.length < 20) {
+    let assignmentText = await extractText(req.file.path);
+    const isHandwrittenOrScanned = !assignmentText || assignmentText.trim().length < 20;
+
+    if (isHandwrittenOrScanned && req.file.mimetype !== 'application/pdf' && !req.file.mimetype.startsWith('image/')) {
+      // If it's a Word doc with no text, it's likely actually empty
       return res.status(400).json({
         success: false,
-        message: "Could not extract text from the uploaded file. Please ensure it is a text-based PDF or Word document.",
+        message: "Could not extract text from the uploaded document.",
       });
+    }
+
+    if (isHandwrittenOrScanned) {
+      assignmentText = "[Document is handwritten or scanned. Please analyze the attached file directly.]";
     }
 
     // Try to find the session for rubric and question paper
@@ -76,6 +83,8 @@ router.post("/evaluate", upload.single("assignment"), async (req, res) => {
     console.log(`Evaluating assignment for ${studentName} [session: ${sessionId || "DEMO"}]...`);
     const result = await evaluateAssignment({
       assignmentText,
+      filePath: req.file.path,
+      mimeType: req.file.mimetype,
       questionText,
       modelAnswerText,
       rubricItems,

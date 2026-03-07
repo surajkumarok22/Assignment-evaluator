@@ -31,10 +31,10 @@ export default function HomePage() {
       <div className="relative z-10 max-w-6xl mx-auto px-6 py-16">
         {/* Header */}
         <div className="text-center mb-16 animate-fade-in">
-          <div className="inline-flex items-center gap-2 bg-white/80 border border-blue-100 rounded-full px-4 py-2 mb-6 shadow-sm">
+          {/* <div className="inline-flex items-center gap-2 bg-white/80 border border-blue-100 rounded-full px-4 py-2 mb-6 shadow-sm">
             <Sparkles className="w-4 h-4 text-blue-600" />
             <span className="text-sm font-medium text-blue-700">Powered by Generative AI</span>
-          </div>
+          </div> */}
           
           <h1 className="text-5xl md:text-7xl font-extrabold mb-6 leading-tight">
             <span className="gradient-text">AI Assignment</span>
