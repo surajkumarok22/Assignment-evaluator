@@ -187,15 +187,18 @@ export default function StudentPage() {
           </div>
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="mb-6 bg-white/80 shadow-sm">
-            <TabsTrigger value="new" onClick={() => setResult(null)}>
-              <Upload className="w-4 h-4 mr-2" />New Submission
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col md:flex-row gap-8 items-start">
+          <TabsList className="flex-col h-auto w-full md:w-64 shrink-0 bg-white/80 shadow-sm border border-slate-200/50 rounded-2xl p-3 gap-1 sticky top-8">
+            <div className="w-full px-3 py-2 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Navigation</div>
+            <TabsTrigger value="new" onClick={() => setResult(null)} className="w-full justify-start px-4 py-2.5 text-sm font-medium data-[state=active]:bg-purple-600 data-[state=active]:text-white data-[state=active]:shadow-md transition-all rounded-xl">
+              <Upload className="w-4 h-4 mr-3" />New Submission
             </TabsTrigger>
-            <TabsTrigger value="history">
-              <Clock className="w-4 h-4 mr-2" />My History
+            <TabsTrigger value="history" className="w-full justify-start px-4 py-2.5 text-sm font-medium data-[state=active]:bg-purple-600 data-[state=active]:text-white data-[state=active]:shadow-md transition-all rounded-xl">
+              <Clock className="w-4 h-4 mr-3" />My History
             </TabsTrigger>
           </TabsList>
+
+          <div className="flex-1 min-w-0 w-full">
 
           <TabsContent value="new">
             {!result ? (
@@ -453,6 +456,7 @@ export default function StudentPage() {
               </CardContent>
             </Card>
           </TabsContent>
+          </div>
         </Tabs>
       </div>
     </div>

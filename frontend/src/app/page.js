@@ -3,127 +3,203 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { BookOpen, GraduationCap, Sparkles, ChevronRight, Brain, Target, BarChart3, Shield } from "lucide-react";
+import { BookOpen, GraduationCap, Sparkles, ChevronRight, Brain, Target, BarChart3, Shield, CheckCircle2 } from "lucide-react";
+import { motion } from "framer-motion";
 
 export default function HomePage() {
   const router = useRouter();
   const [hovering, setHovering] = useState(null);
 
   const features = [
-    { icon: Brain, title: "AI-Powered Evaluation", desc: "Advanced LLM evaluates concept accuracy, completeness, relevance and more" },
-    { icon: Target, title: "Rubric-Based Scoring", desc: "Controlled prompting with faculty-defined rubrics reduces hallucination" },
-    { icon: BarChart3, title: "Detailed Analytics", desc: "Visual breakdowns of scores across all evaluation parameters" },
-    { icon: Shield, title: "Similarity Detection", desc: "Flags potential plagiarism and AI-generated content" },
+    { icon: Brain, title: "AI-Powered Evaluation", desc: "Advanced LLM assesses concept accuracy, structure, and relevance instantly." },
+    { icon: Target, title: "Rubric-Based Scoring", desc: "Controlled prompting with faculty-defined rubrics to eliminate hallucination." },
+    { icon: BarChart3, title: "Detailed Analytics", desc: "Visual breakdowns of scores across all parameters for precise insights." },
+    { icon: Shield, title: "Plagiarism Detection", desc: "Smart filtering flags potential similarity and AI-generated content." },
   ];
 
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.15
+      }
+    }
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
+  };
+
   return (
-    <div className="min-h-screen relative overflow-hidden">
-      {/* Animated Background */}
-      <div className="absolute inset-0 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50" />
-      <div className="absolute inset-0" style={{
-        backgroundImage: "radial-gradient(circle at 20% 50%, rgba(99,102,241,0.08) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(139,92,246,0.08) 0%, transparent 50%), radial-gradient(circle at 50% 80%, rgba(59,130,246,0.06) 0%, transparent 50%)"
-      }} />
+    <div className="min-h-screen relative overflow-hidden bg-background text-foreground font-sans selection:bg-primary/20">
       
-      {/* Floating orbs */}
-      <div className="absolute top-20 left-10 w-64 h-64 rounded-full bg-blue-200/20 blur-3xl animate-pulse" />
-      <div className="absolute bottom-20 right-10 w-80 h-80 rounded-full bg-purple-200/20 blur-3xl animate-pulse" style={{ animationDelay: "1s" }} />
-
-      <div className="relative z-10 max-w-6xl mx-auto px-6 py-16">
-        {/* Header */}
-        <div className="text-center mb-16 animate-fade-in">
-          {/* <div className="inline-flex items-center gap-2 bg-white/80 border border-blue-100 rounded-full px-4 py-2 mb-6 shadow-sm">
-            <Sparkles className="w-4 h-4 text-blue-600" />
-            <span className="text-sm font-medium text-blue-700">Powered by Generative AI</span>
-          </div> */}
-          
-          <h1 className="text-5xl md:text-7xl font-extrabold mb-6 leading-tight">
-            <span className="gradient-text">AI Assignment</span>
-            <br />
-            <span className="text-foreground">Evaluator</span>
-          </h1>
-          
-          <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-            Eliminate bias, save time, and provide detailed personalized feedback at scale using 
-            rubric-based controlled prompting.
-          </p>
+      {/* Navigation Bar */}
+      <nav className="relative z-50 flex items-center justify-between px-6 py-5 max-w-7xl mx-auto w-full animate-fade-in">
+        <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => router.push('/')}>
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow-md">
+            <BookOpen className="w-5 h-5 text-white" />
+          </div>
+          <span className="font-extrabold text-xl tracking-tight text-slate-900">
+            AIEval<span className="text-primary">.</span>
+          </span>
         </div>
+        <div className="flex items-center gap-3 md:gap-5">
+          <Button variant="ghost" className="font-semibold text-sm text-slate-600 hover:text-primary hover:bg-primary/5 hidden sm:flex" onClick={() => router.push('/login')}>
+            Sign In
+          </Button>
+          <Button className="font-semibold text-sm bg-slate-900 text-white transition-all hover:bg-slate-800 rounded-full px-6 shadow-[0_4px_14px_0_rgb(0,0,0,0.1)] hover:shadow-[0_6px_20px_rgba(0,0,0,0.15)] hover:-translate-y-0.5" onClick={() => router.push('/signup')}>
+            Get Started
+          </Button>
+        </div>
+      </nav>
 
-        {/* Role Cards */}
-        <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto mb-16">
+      {/* Background Elements */}
+      <div className="absolute inset-0 z-0">
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]"></div>
+        <div className="absolute left-0 right-0 top-[-10%] -z-10 m-auto h-[310px] w-[310px] rounded-full bg-primary/20 opacity-50 blur-[100px]"></div>
+        <div className="absolute left-1/4 right-0 bottom-[-10%] -z-10 m-auto h-[310px] w-[310px] rounded-full bg-accent/20 opacity-50 blur-[100px]"></div>
+      </div>
+
+      {/* Main Content */}
+      <div className="relative z-10 max-w-6xl mx-auto px-6 pt-12 pb-12 flex flex-col items-center justify-center">
+        
+        {/* Header Section */}
+        <motion.div 
+          className="text-center w-full max-w-3xl mx-auto mb-16"
+          variants={containerVariants}
+          initial="hidden"
+          animate="show"
+        >
+          <motion.div variants={itemVariants} className="flex justify-center mb-6">
+            <div className="inline-flex items-center gap-2 bg-white/60 backdrop-blur-md border border-slate-200/60 rounded-full px-4 py-1.5 shadow-sm hover:shadow-md transition-shadow">
+              <Sparkles className="w-4 h-4 text-primary" />
+              <span className="text-sm font-semibold tracking-tight text-slate-800">Next-Generation AI Evaluation</span>
+            </div>
+          </motion.div>
+          
+          <motion.h1 variants={itemVariants} className="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 leading-tight">
+            Mark Assignments <br /> 
+            <span className="gradient-text">with Precision.</span>
+          </motion.h1>
+          
+          <motion.p variants={itemVariants} className="text-lg md:text-xl text-muted-foreground mx-auto leading-relaxed max-w-2xl font-medium">
+            Eliminate subjective bias, dramatically save time, and provide rich, personalized feedback to every student at scale using our intelligent, rubric-driven LLM engine.
+          </motion.p>
+        </motion.div>
+
+        {/* Roles Section */}
+        <motion.div 
+          className="grid md:grid-cols-2 gap-8 w-full max-w-4xl mx-auto mb-20"
+          variants={containerVariants}
+          initial="hidden"
+          animate="show"
+        >
           {[
             {
               id: "faculty",
               icon: BookOpen,
-              title: "I'm a Faculty",
-              subtitle: "Upload questions, rubrics & model answers",
+              title: "For Faculty",
+              subtitle: "Streamline grading effortlessly.",
+              accent: "text-blue-600",
               color: "from-blue-600 to-indigo-600",
-              bg: "from-blue-50 to-indigo-50",
-              border: "border-blue-200",
+              bg: "bg-white/70",
               path: "/faculty",
-              items: ["Upload question paper & rubric", "Set difficulty & strictness", "View student submissions"]
+              items: ["Upload rubrics & model answers", "Customize strictness levels", "Review profound analytics"]
             },
             {
               id: "student",
               icon: GraduationCap,
-              title: "I'm a Student",
-              subtitle: "Submit assignments & get instant AI feedback",
+              title: "For Students",
+              subtitle: "Get immediate, actionable insights.",
+              accent: "text-purple-600",
               color: "from-purple-600 to-violet-600",
-              bg: "from-purple-50 to-violet-50",
-              border: "border-purple-200",
+              bg: "bg-white/70",
               path: "/student",
-              items: ["Upload your assignment PDF", "Get instant marks & feedback", "View improvement suggestions"]
+              items: ["Submit assignments seamlessly", "Receive instant scores", "View personalized feedback"]
             }
           ].map((role) => (
-            <Card
-              key={role.id}
-              className={`cursor-pointer transition-all duration-300 border-2 ${role.border} bg-gradient-to-br ${role.bg} hover:shadow-xl hover:-translate-y-1`}
-              onMouseEnter={() => setHovering(role.id)}
-              onMouseLeave={() => setHovering(null)}
-              onClick={() => router.push(role.path)}
-            >
-              <CardContent className="p-8">
-                <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${role.color} flex items-center justify-center mb-5 shadow-lg`}>
-                  <role.icon className="w-7 h-7 text-white" />
-                </div>
-                <h2 className="text-2xl font-bold mb-2 text-foreground">{role.title}</h2>
-                <p className="text-muted-foreground mb-5 text-sm">{role.subtitle}</p>
-                <ul className="space-y-2 mb-6">
-                  {role.items.map((item, i) => (
-                    <li key={i} className="flex items-center gap-2 text-sm text-foreground/80">
-                      <div className={`w-1.5 h-1.5 rounded-full bg-gradient-to-r ${role.color}`} />
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-                <Button className="w-full group" onClick={() => router.push(role.path)}>
-                  Get Started
-                  <ChevronRight className="w-4 h-4 ml-2 transition-transform group-hover:translate-x-1" />
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+            <motion.div key={role.id} variants={itemVariants} className="h-full">
+              <Card
+                className={`group relative h-full overflow-hidden cursor-pointer border border-slate-200/60 ${role.bg} backdrop-blur-xl hover:shadow-[0_8px_30px_rgb(0,0,0,0.06)] hover:border-slate-300 transition-all duration-500`}
+                onMouseEnter={() => setHovering(role.id)}
+                onMouseLeave={() => setHovering(null)}
+                onClick={() => router.push(role.path)}
+              >
+                <div className={`absolute inset-0 bg-gradient-to-br ${role.color} opacity-0 group-hover:opacity-[0.03] transition-opacity duration-500 z-0`} />
+                
+                <CardContent className="p-8 h-full flex flex-col relative z-10">
+                  <div className="flex items-center gap-5 mb-8">
+                    <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${role.color} flex items-center justify-center shadow-lg shadow-${role.accent}/20`}>
+                      <role.icon className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-bold tracking-tight text-slate-900">{role.title}</h2>
+                      <p className="text-slate-500 text-sm font-medium">{role.subtitle}</p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex-1">
+                    <ul className="space-y-4 mb-8">
+                      {role.items.map((item, i) => (
+                         <li key={i} className="flex items-start gap-3 text-[15px] font-semibold text-slate-700">
+                          <CheckCircle2 className={`w-5 h-5 ${role.accent} shrink-0`} />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
 
-        {/* Features */}
-        <div>
-          <h2 className="text-center text-2xl font-bold mb-8 text-foreground">Why AI Evaluation?</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <Button className={`w-full group shadow-md transition-all duration-300 bg-gradient-to-r ${role.color} hover:shadow-lg`} size="lg">
+                    <span className="font-bold text-white">Get Started</span>
+                    <ChevronRight className="w-5 h-5 ml-2 text-white/90 transition-transform group-hover:translate-x-1.5" />
+                  </Button>
+                </CardContent>
+              </Card>
+            </motion.div>
+          ))}
+        </motion.div>
+
+        {/* Features Section */}
+        <motion.div 
+          className="w-full max-w-5xl mx-auto"
+          initial={{ opacity: 0, y: 40 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-100px" }}
+          transition={{ duration: 0.7 }}
+        >
+          <div className="text-center mb-10">
+            <h2 className="text-3xl font-bold tracking-tight text-slate-900">Why choose AI Evaluation?</h2>
+          </div>
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
             {features.map((f, i) => (
-              <div key={i} className="glass rounded-xl p-5 text-center hover:shadow-md transition-all duration-200 animate-fade-in" style={{ animationDelay: `${i * 0.1}s` }}>
-                <div className="w-10 h-10 gradient-bg rounded-xl flex items-center justify-center mx-auto mb-3">
-                  <f.icon className="w-5 h-5 text-white" />
+              <div key={i} className="bg-white/60 backdrop-blur-md border border-slate-200/50 rounded-2xl p-6 hover:bg-white/90 transition-colors duration-300 shadow-sm pointer-events-auto">
+                <div className="w-11 h-11 rounded-xl bg-slate-100 flex items-center justify-center mb-5 border border-slate-200/50">
+                  <f.icon className="w-5 h-5 text-primary" />
                 </div>
-                <h3 className="font-semibold text-sm mb-1">{f.title}</h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">{f.desc}</p>
+                <h3 className="font-bold text-slate-900 mb-2">{f.title}</h3>
+                <p className="text-sm text-slate-600 leading-relaxed font-medium">{f.desc}</p>
               </div>
             ))}
           </div>
-        </div>
+        </motion.div>
 
         {/* Footer */}
-        <p className="text-center text-xs text-muted-foreground mt-12">
-          Built with Next.js • Node.js • Claude AI • MongoDB
-        </p>
+        <motion.div 
+          className="mt-20 border-t border-slate-200/60 pt-8 w-full flex justify-center"
+          initial={{ opacity: 0 }}
+          whileInView={{ opacity: 1 }}
+          viewport={{ once: true }}
+        >
+           <p className="text-sm font-medium text-slate-500 flex items-center gap-2">
+            Built with 
+            <span className="text-slate-900 font-semibold">Next.js</span> • 
+            <span className="text-slate-900 font-semibold">Claude AI</span> • 
+            <span className="text-slate-900 font-semibold">MongoDB</span>
+          </p>
+        </motion.div>
+
       </div>
     </div>
   );
