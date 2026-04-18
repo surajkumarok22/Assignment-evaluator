@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { motion } from "framer-motion";
-import { LogIn, Mail, Lock, AlertCircle, ArrowRight, GraduationCap } from "lucide-react";
+import { LogIn, Mail, Lock, AlertCircle, ArrowRight, GraduationCap, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import axios from "axios";
 
@@ -34,6 +34,12 @@ export default function Login() {
 
     return (
         <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50 p-6 relative overflow-hidden">
+            {/* Back to Home Button */}
+            <Link href="/" className="absolute top-6 left-6 sm:top-8 sm:left-8 z-20 flex items-center gap-2 px-4 py-2 bg-white/70 backdrop-blur-md border border-slate-200/60 rounded-full text-sm font-semibold text-slate-700 hover:text-indigo-600 hover:bg-white hover:shadow-md transition-all shadow-sm">
+                <ArrowLeft className="w-4 h-4" />
+                <span>Back to Home</span>
+            </Link>
+
             {/* Decorative Blur Orbs */}
             <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-purple-300 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>
             <div className="absolute top-[-10%] right-[-10%] w-96 h-96 bg-indigo-300 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
