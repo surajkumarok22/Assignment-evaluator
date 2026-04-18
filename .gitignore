@@ -5,7 +5,12 @@ Thumbs.db
 # Node dependencies
 node_modules/
 
-
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+.env.example
 
 # Next.js (frontend)
 frontend/.next/
