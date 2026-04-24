@@ -24,6 +24,8 @@ const sessionSchema = new mongoose.Schema({
     difficulty: { type: String, enum: ["easy", "medium", "hard"], default: "medium" },
     strictness: { type: String, enum: ["lenient", "moderate", "strict"], default: "moderate" },
     totalMarks: { type: Number, default: 10 },
+    branch: { type: String },
+    semester: { type: String },
     // Multi-model settings
     models: { type: [String], default: ["gemini"] }, // ['gemini', 'openai', 'anthropic']
     evaluationStrategy: { type: String, enum: ["average", "best"], default: "average" },
@@ -90,8 +92,30 @@ const submissionSchema = new mongoose.Schema({
   evaluatedAt: { type: Date, default: Date.now },
 });
 
+// Generated Question (by teacher)
+const generatedQuestionSchema = new mongoose.Schema({
+  teacherId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  parameters: {
+    branch: String,
+    semester: String,
+    year: String,
+    difficulty: String,
+    type: String, // 'subjective' | 'objective'
+    count: Number,
+  },
+  syllabusText: String,
+  syllabusPath: String,
+  modelsUsed: [String], // 'gemini', 'openai', 'anthropic'
+  generatedQuestions: [{
+    model: String,
+    questions: String, // the text output from the model
+  }],
+  createdAt: { type: Date, default: Date.now },
+});
+
 const User = mongoose.model("User", userSchema);
 const Session = mongoose.model("Session", sessionSchema);
 const Submission = mongoose.model("Submission", submissionSchema);
+const GeneratedQuestion = mongoose.model("GeneratedQuestion", generatedQuestionSchema);
 
-module.exports = { User, Session, Submission };
+module.exports = { User, Session, Submission, GeneratedQuestion };

@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import {
   Upload, FileText, Settings, CheckCircle2, ArrowLeft, BookOpen,
-  Plus, Trash2, Eye, Users, BarChart3, ClipboardList, Sparkles, AlertCircle, Clock, ChevronDown, ChevronUp
+  Plus, Trash2, Eye, Users, BarChart3, ClipboardList, Sparkles, AlertCircle, Clock, ChevronDown, ChevronUp, Cpu, Download, FileQuestion
 } from "lucide-react";
 
 function FileDropzone({ onDrop, accept, label, icon: Icon, file }) {
@@ -55,7 +55,7 @@ export default function FacultyPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("setup");
   const [files, setFiles] = useState({ question: null, rubric: null, model: null });
-  const [settings, setSettings] = useState({ difficulty: "medium", strictness: "moderate", totalMarks: "10", subject: "", title: "" });
+  const [settings, setSettings] = useState({ difficulty: "medium", strictness: "moderate", totalMarks: "10", subject: "", title: "", branch: "", semester: "" });
   const [modelConfig, setModelConfig] = useState({ models: ["gemini"], strategy: "average" });
   const [rubricItems, setRubricItems] = useState([
     { parameter: "Concept Accuracy", maxMarks: 3, description: "Are concepts correct and well-explained?" },
@@ -70,16 +70,27 @@ export default function FacultyPage() {
   const { token, user, loading, logout } = useAuth();
 
   const [historySessions, setHistorySessions] = useState([]);
+  const [historyGenerated, setHistoryGenerated] = useState([]);
   const [sessionSubmissions, setSessionSubmissions] = useState({});
   const [expandedSession, setExpandedSession] = useState(null);
 
+  // Generate Questions State
+  const [genSettings, setGenSettings] = useState({ branch: "", semester: "", year: "", difficulty: "medium", type: "subjective", count: 5 });
+  const [genFile, setGenFile] = useState(null);
+  const [genModels, setGenModels] = useState(["gemini"]);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [genResult, setGenResult] = useState(null);
+
   const fetchHistory = useCallback(async () => {
     try {
-      const res = await fetch("http://localhost:5000/api/faculty/sessions", {
-        headers: { "Authorization": `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (data.success) setHistorySessions(data.sessions);
+      const [resSessions, resGenerated] = await Promise.all([
+        fetch("http://localhost:5000/api/faculty/sessions", { headers: { "Authorization": `Bearer ${token}` } }),
+        fetch("http://localhost:5000/api/faculty/generated-questions", { headers: { "Authorization": `Bearer ${token}` } })
+      ]);
+      const dataSessions = await resSessions.json();
+      const dataGenerated = await resGenerated.json();
+      if (dataSessions.success) setHistorySessions(dataSessions.sessions);
+      if (dataGenerated.success) setHistoryGenerated(dataGenerated.data);
     } catch (e) { console.error(e); }
   }, [token]);
 
@@ -165,6 +176,41 @@ export default function FacultyPage() {
     setIsCreating(false);
   };
 
+  const handleGenerateQuestions = async () => {
+    if (!genSettings.branch || !genSettings.semester || !genSettings.year) {
+      setError("Please fill in Branch, Semester, and Year.");
+      return;
+    }
+    setError("");
+    setIsGenerating(true);
+    setGenResult(null);
+    try {
+      const formData = new FormData();
+      Object.keys(genSettings).forEach(k => formData.append(k, genSettings[k]));
+      if (genFile) formData.append("syllabusFile", genFile);
+      formData.append("selectedModels", JSON.stringify(genModels.includes("all") ? ["gemini", "openai", "anthropic"] : genModels));
+
+      const res = await fetch("http://localhost:5000/api/faculty/generate-questions", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.success) {
+        setGenResult(data.data);
+      } else {
+        setError(data.message || "Failed to generate questions.");
+      }
+    } catch (e) {
+      setError("Error connecting to server.");
+    }
+    setIsGenerating(false);
+  };
+
+  const handlePrintPDF = () => {
+    window.print();
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-white">
       <div className="absolute inset-0 pointer-events-none" style={{
@@ -206,9 +252,12 @@ export default function FacultyPage() {
             <TabsTrigger value="history" className="w-full justify-start px-4 py-2.5 text-sm font-medium data-[state=active]:bg-blue-600 data-[state=active]:text-white data-[state=active]:shadow-md transition-all rounded-xl">
               <Clock className="w-4 h-4 mr-3" />History
             </TabsTrigger>
+            <TabsTrigger value="generate" className="w-full justify-start px-4 py-2.5 text-sm font-medium data-[state=active]:bg-purple-600 data-[state=active]:text-white data-[state=active]:shadow-md transition-all rounded-xl mt-4 border border-purple-200 text-purple-700 bg-purple-50">
+              <Sparkles className="w-4 h-4 mr-3" />Generate Qs
+            </TabsTrigger>
           </TabsList>
 
-          <div className="flex-1 min-w-0 w-full">
+          <div className="flex-1 min-w-0 w-full print:w-full print:m-0 print:p-0">
 
           {/* Setup Tab */}
           <TabsContent value="setup" className="animate-fade-in">
@@ -220,12 +269,29 @@ export default function FacultyPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label>Assignment Title *</Label>
-                    <Input
-                      placeholder="e.g. Object Oriented Programming Concepts"
-                      value={settings.title}
-                      onChange={(e) => setSettings({ ...settings, title: e.target.value })}
-                    />
+                    <Label>Branch *</Label>
+                    <Select value={settings.branch} onValueChange={(v) => setSettings({ ...settings, branch: v })}>
+                      <SelectTrigger><SelectValue placeholder="Select Branch" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Computer Science Engineering">Computer Science Engineering (CSE)</SelectItem>
+                        <SelectItem value="Computer Science Engineering(AI/ML)">Computer Science Engineering(AI/ML)</SelectItem>
+                        <SelectItem value="Electronics & Communication">Electronics & Communication (ECE)</SelectItem>
+                        <SelectItem value="Electrical Engineering">Electrical Engineering (EE)</SelectItem>
+                        <SelectItem value="Mechanical Engineering">Mechanical Engineering (ME)</SelectItem>
+                        <SelectItem value="Civil Engineering">Civil Engineering (CE)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Semester *</Label>
+                    <Select value={settings.semester} onValueChange={(v) => setSettings({ ...settings, semester: v })}>
+                      <SelectTrigger><SelectValue placeholder="Select Semester" /></SelectTrigger>
+                      <SelectContent>
+                        {[1, 2, 3, 4, 5, 6, 7, 8].map(sem => (
+                          <SelectItem key={sem} value={sem.toString()}>Semester {sem}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-2">
                     <Label>Subject *</Label>
@@ -233,6 +299,14 @@ export default function FacultyPage() {
                       placeholder="e.g. Computer Science"
                       value={settings.subject}
                       onChange={(e) => setSettings({ ...settings, subject: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Assignment Title *</Label>
+                    <Input
+                      placeholder="e.g. Object Oriented Programming Concepts"
+                      value={settings.title}
+                      onChange={(e) => setSettings({ ...settings, title: e.target.value })}
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
@@ -510,6 +584,8 @@ export default function FacultyPage() {
 
                     <div className="grid grid-cols-3 gap-4">
                       {[
+                        { label: "Branch", value: settings.branch || "—" },
+                        { label: "Semester", value: settings.semester ? `Sem ${settings.semester}` : "—" },
                         { label: "Subject", value: settings.subject || "—" },
                         { label: "Difficulty", value: settings.difficulty },
                         { label: "Strictness", value: settings.strictness },
@@ -607,8 +683,234 @@ export default function FacultyPage() {
                     </div>
                   ))
                 )}
+
+              {historyGenerated.length > 0 && (
+                <>
+                  <Separator className="my-6" />
+                  <h3 className="text-md font-semibold mb-4 text-purple-700 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4" /> Past Generated Questions
+                  </h3>
+                  {historyGenerated.map((gen) => (
+                    <div key={gen._id} className="border border-purple-100 rounded-xl bg-purple-50/30 p-4 mb-3">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="font-semibold text-sm">
+                            {gen.parameters.branch} - Sem {gen.parameters.semester} (Year {gen.parameters.year})
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {gen.parameters.count} {gen.parameters.type} Questions | {gen.parameters.difficulty} Level
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-muted-foreground">{new Date(gen.createdAt).toLocaleString()}</p>
+                          <Badge variant="outline" className="mt-1 text-[10px] uppercase text-purple-600 border-purple-200 bg-purple-100/50">
+                            {gen.modelsUsed.join(" + ")}
+                          </Badge>
+                        </div>
+                      </div>
+                      <div className="mt-3">
+                        <Button variant="outline" size="sm" className="w-full text-xs h-8" onClick={() => {
+                          setGenResult(gen);
+                          setActiveTab("generate");
+                        }}>
+                          <Eye className="w-3 h-3 mr-2" /> View Questions
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* Generate Questions Tab */}
+          <TabsContent value="generate" className="animate-fade-in print:block print:w-full">
+            {!genResult ? (
+              <div className="grid lg:grid-cols-2 gap-6 print:hidden">
+                <Card className="shadow-sm border-0 bg-white/80">
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-purple-500" />
+                      AI Question Generator
+                    </CardTitle>
+                    <CardDescription>Enter parameters to automatically generate an exam paper based on your syllabus.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Branch</Label>
+                        <Input placeholder="e.g. Computer Science" value={genSettings.branch} onChange={(e) => setGenSettings({ ...genSettings, branch: e.target.value })} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Semester</Label>
+                        <Input placeholder="e.g. 5th" value={genSettings.semester} onChange={(e) => setGenSettings({ ...genSettings, semester: e.target.value })} />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Year</Label>
+                        <Input placeholder="e.g. 3rd" value={genSettings.year} onChange={(e) => setGenSettings({ ...genSettings, year: e.target.value })} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Difficulty Level</Label>
+                        <Select value={genSettings.difficulty} onValueChange={(v) => setGenSettings({ ...genSettings, difficulty: v })}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="easy">Easy (Basic Concepts)</SelectItem>
+                            <SelectItem value="medium">Medium (Application)</SelectItem>
+                            <SelectItem value="hard">Hard (Analysis & Design)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Question Type</Label>
+                        <Select value={genSettings.type} onValueChange={(v) => setGenSettings({ ...genSettings, type: v })}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="subjective">Subjective (Long Answer)</SelectItem>
+                            <SelectItem value="objective">Objective (MCQs)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Number of Questions</Label>
+                        <Input type="number" min="1" max="50" value={genSettings.count} onChange={(e) => setGenSettings({ ...genSettings, count: e.target.value })} />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <div className="space-y-6">
+                  <Card className="shadow-sm border-0 bg-white/80">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <BookOpen className="w-4 h-4 text-emerald-600" />
+                        Syllabus Upload
+                      </CardTitle>
+                      <CardDescription>Upload syllabus PDF/DOCX to base the questions on.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <FileDropzone
+                        onDrop={(f) => setGenFile(f)}
+                        accept={{ "application/pdf": [".pdf"], "application/msword": [".doc", ".docx"] }}
+                        label="Upload Syllabus Document"
+                        icon={FileText}
+                        file={genFile}
+                      />
+                    </CardContent>
+                  </Card>
+
+                  <Card className="shadow-sm border-0 bg-gradient-to-br from-purple-50 to-indigo-50 border-purple-100">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <Cpu className="w-4 h-4 text-purple-600" />
+                        AI Model Configuration
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        {[
+                          { id: "gemini", label: "Gemini 2.0 Flash", color: "bg-blue-500" },
+                          { id: "openai", label: "GPT-4o Mini", color: "bg-green-500" },
+                          { id: "anthropic", label: "Claude Sonnet", color: "bg-purple-500" },
+                          { id: "all", label: "All Models (Compare)", color: "bg-gradient-to-r from-blue-500 via-green-500 to-purple-500" },
+                        ].map(({ id, label, color }) => {
+                          const checked = genModels.includes(id) || (id === "all" && genModels.includes("all"));
+                          return (
+                            <label key={id} className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${checked ? "border-purple-400 bg-white/80 shadow-sm" : "border-border/50 hover:border-purple-200 bg-white/40"}`}>
+                              <input
+                                type="checkbox"
+                                className="hidden"
+                                checked={checked}
+                                onChange={() => {
+                                  if (id === "all") setGenModels(["all"]);
+                                  else {
+                                    const next = genModels.filter(m => m !== "all" && m !== id);
+                                    if (!checked) next.push(id);
+                                    if (next.length > 0) setGenModels(next);
+                                  }
+                                }}
+                              />
+                              <div className={`w-3 h-3 rounded-full ${color} flex-shrink-0 ${!checked ? "opacity-30" : ""}`} />
+                              <div className="flex-1 text-sm font-semibold">{label}</div>
+                              <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${checked ? "bg-purple-600 border-purple-600" : "border-muted-foreground/30"}`}>
+                                {checked && <CheckCircle2 className="w-3.5 h-3.5 text-white" />}
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+
+                      {error && (
+                        <div className="mt-4 flex items-start gap-2 text-sm text-red-600 bg-red-50 p-3 rounded-lg border border-red-100">
+                          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                          <p>{error}</p>
+                        </div>
+                      )}
+
+                      <Button className="w-full mt-6 bg-purple-600 hover:bg-purple-700" size="lg" disabled={isGenerating} onClick={handleGenerateQuestions}>
+                        {isGenerating ? (
+                          <div className="flex items-center">
+                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />
+                            Generating...
+                          </div>
+                        ) : (
+                          <>
+                            <Sparkles className="w-4 h-4 mr-2" /> Generate Question Paper
+                          </>
+                        )}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between print:hidden">
+                  <Button variant="outline" onClick={() => setGenResult(null)}>
+                    <ArrowLeft className="w-4 h-4 mr-2" /> Back to Generator
+                  </Button>
+                  <Button className="bg-purple-600 hover:bg-purple-700" onClick={handlePrintPDF}>
+                    <Download className="w-4 h-4 mr-2" /> Export to PDF
+                  </Button>
+                </div>
+
+                <div className="print:block">
+                  <div className="text-center mb-8 border-b-2 border-black pb-4">
+                    <h1 className="text-2xl font-bold uppercase tracking-wide">Question Paper</h1>
+                    <p className="text-sm font-medium mt-1">Branch: {genResult.parameters.branch} | Semester: {genResult.parameters.semester} | Year: {genResult.parameters.year}</p>
+                    <p className="text-sm text-muted-foreground mt-1">Type: <span className="capitalize">{genResult.parameters.type}</span> | Level: <span className="capitalize">{genResult.parameters.difficulty}</span></p>
+                  </div>
+
+                  {genResult.generatedQuestions.length === 1 ? (
+                    <div className="prose prose-sm max-w-none print:prose-p:text-black print:prose-headings:text-black print:prose-li:text-black whitespace-pre-wrap">
+                      {genResult.generatedQuestions[0].questions}
+                    </div>
+                  ) : (
+                    <Tabs defaultValue={genResult.generatedQuestions[0].model} className="print:hidden">
+                      <TabsList className="w-full justify-start bg-purple-50 p-1 rounded-xl mb-4">
+                        {genResult.generatedQuestions.map(q => (
+                          <TabsTrigger key={q.model} value={q.model} className="data-[state=active]:bg-white data-[state=active]:text-purple-700 capitalize rounded-lg px-6">
+                            {q.model} Output
+                          </TabsTrigger>
+                        ))}
+                      </TabsList>
+                      {genResult.generatedQuestions.map(q => (
+                        <TabsContent key={q.model} value={q.model} className="bg-white p-6 rounded-xl border border-border/50 shadow-sm">
+                          <div className="prose prose-sm max-w-none whitespace-pre-wrap">{q.questions}</div>
+                          <Button className="mt-6 w-full" variant="outline" onClick={handlePrintPDF}>
+                            Print this version ({q.model})
+                          </Button>
+                        </TabsContent>
+                      ))}
+                    </Tabs>
+                  )}
+                </div>
+              </div>
+            )}
           </TabsContent>
           </div>
         </Tabs>

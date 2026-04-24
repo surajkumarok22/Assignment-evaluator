@@ -26,6 +26,8 @@ function buildEvaluationPrompt({ assignmentText, questionText, modelAnswerText, 
   };
 
   return `You are an expert academic evaluator with 15+ years of experience in ${settings.difficulty || "medium"} level education.
+${settings.branch ? `You are evaluating an assignment for a student in the ${settings.branch} branch.` : ""}
+${settings.semester ? `The student is currently in Semester ${settings.semester}.` : ""}
 
 DIFFICULTY CONTEXT: ${difficultyContext[settings.difficulty] || difficultyContext.medium}
 STRICTNESS LEVEL: ${strictnessInstructions[settings.strictness] || strictnessInstructions.moderate}
@@ -384,3 +386,96 @@ async function evaluateAssignment(params) {
 }
 
 module.exports = { evaluateAssignment, evaluateWithMultipleModels };
+
+/**
+ * Generate questions using multiple models
+ * @param {object} params - { branch, semester, year, difficulty, type, count, syllabusText }
+ * @param {string[]} requestedModels - ['gemini', 'openai', 'anthropic']
+ */
+async function generateQuestionsWithModels(params, requestedModels = ["gemini"]) {
+  const { branch, semester, year, difficulty, type, count, syllabusText } = params;
+  
+  const typeInstruction = type === 'objective' 
+    ? "objective/multiple-choice questions (MCQs). DO NOT provide the answer keys. Just the questions and options."
+    : "subjective/descriptive questions. DO NOT provide the answers. Just the questions.";
+
+  const prompt = `You are an expert academic professor. 
+Please generate exactly ${count} ${typeInstruction} 
+for a student in Branch: ${branch}, Semester: ${semester}, Year: ${year}.
+The difficulty level should be ${difficulty}.
+
+Base the questions STRICTLY on the following syllabus topics:
+--- SYLLABUS ---
+${syllabusText || "General topics for this subject"}
+--- END SYLLABUS ---
+
+Format the output clearly as a ready-to-use question paper. Use markdown formatting.
+If objective, format as:
+1. Question Text
+   a) Option A
+   b) Option B
+   c) Option C
+   d) Option D
+
+If subjective, format as:
+1. Question Text
+
+IMPORTANT: Generate ONLY the questions as requested. Do NOT include any introductory or concluding remarks, and do NOT include the answers.`;
+
+  console.log(`🤖 Generating questions with models: [${requestedModels.join(", ")}]`);
+
+  const modelPromises = requestedModels.map(async (modelName) => {
+    try {
+      let rawResponse;
+      if (modelName === "gemini" && process.env.GEMINI_API_KEY) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+        const response = await axios.post(url, {
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
+        });
+        rawResponse = response.data.candidates[0].content.parts[0].text;
+      } else if (modelName === "openai" && process.env.OPENAI_API_KEY) {
+        const response = await axios.post(
+          "https://api.openai.com/v1/chat/completions",
+          {
+            model: "gpt-4o-mini",
+            messages: [
+              { role: "system", content: "You are an expert academic professor." },
+              { role: "user", content: prompt },
+            ],
+            temperature: 0.7,
+            max_tokens: 2048,
+          },
+          { headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" } }
+        );
+        rawResponse = response.data.choices[0].message.content;
+      } else if (modelName === "anthropic" && process.env.ANTHROPIC_API_KEY) {
+        const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+        const message = await client.messages.create({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 2048,
+          messages: [{ role: "user", content: prompt }],
+        });
+        rawResponse = message.content[0].text;
+      } else {
+        return { model: modelName, status: "failed", error: `No API key configured for ${modelName}` };
+      }
+      return { model: modelName, status: "success", text: rawResponse };
+    } catch (err) {
+      console.error(`[${modelName}] Question generation failed:`, err.message);
+      return { model: modelName, status: "failed", error: err.message };
+    }
+  });
+
+  const rawResults = await Promise.allSettled(modelPromises);
+  const modelResults = rawResults.map(r => r.status === "fulfilled" ? r.value : { model: "unknown", status: "failed", error: r.reason?.message });
+
+  const successfulResults = modelResults.filter(r => r.status === "success");
+  if (successfulResults.length === 0) {
+    throw new Error(`All AI models failed to generate questions.`);
+  }
+
+  return modelResults;
+}
+
+module.exports.generateQuestionsWithModels = generateQuestionsWithModels;

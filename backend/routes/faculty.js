@@ -1,8 +1,9 @@
 const express = require("express");
 const router = express.Router();
 const { v4: uuidv4 } = require("uuid");
-const { Session } = require("../models");
+const { Session, GeneratedQuestion } = require("../models");
 const { extractText } = require("../extractText");
+const { generateQuestionsWithModels } = require("../aiService");
 const { uploadCloud } = require("../utils/cloudinary");
 const { authMiddleware, restrictTo } = require("../middleware/auth");
 
@@ -102,6 +103,81 @@ router.get("/session/:sessionId", authMiddleware, async (req, res) => {
     const session = await Session.findOne({ sessionId: req.params.sessionId });
     if (!session) return res.status(404).json({ success: false, message: "Session not found." });
     res.json({ success: true, session });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+/**
+ * POST /api/faculty/generate-questions
+ * Generate new questions using AI
+ */
+router.post(
+  "/generate-questions",
+  authMiddleware,
+  restrictTo("teacher"),
+  uploadCloud.single("syllabusFile"),
+  async (req, res) => {
+    try {
+      const { branch, semester, year, difficulty, type, count, selectedModels } = req.body;
+      const modelsToUse = selectedModels ? JSON.parse(selectedModels) : ["gemini"];
+
+      let syllabusText = "";
+      let syllabusPath = "";
+
+      if (req.file) {
+        syllabusPath = req.file.path;
+        syllabusText = await extractText(syllabusPath);
+      } else if (req.body.syllabusText) {
+        syllabusText = req.body.syllabusText;
+      }
+
+      if (!branch || !semester || !year || !count) {
+        return res.status(400).json({ success: false, message: "Missing required parameters." });
+      }
+
+      const params = {
+        branch,
+        semester,
+        year,
+        difficulty: difficulty || "medium",
+        type: type || "subjective",
+        count: Number(count) || 5,
+        syllabusText,
+      };
+
+      const results = await generateQuestionsWithModels(params, modelsToUse);
+
+      const generatedQ = new GeneratedQuestion({
+        teacherId: req.user.id,
+        parameters: params,
+        syllabusText,
+        syllabusPath,
+        modelsUsed: results.map(r => r.model),
+        generatedQuestions: results.map(r => ({
+          model: r.model,
+          questions: r.text || r.error,
+        })),
+      });
+
+      await generatedQ.save();
+
+      res.json({ success: true, data: generatedQ });
+    } catch (err) {
+      console.error("Generate questions error:", err);
+      res.status(500).json({ success: false, message: err.message || "Internal server error" });
+    }
+  }
+);
+
+/**
+ * GET /api/faculty/generated-questions
+ * Get history of generated questions for the faculty
+ */
+router.get("/generated-questions", authMiddleware, restrictTo("teacher"), async (req, res) => {
+  try {
+    const history = await GeneratedQuestion.find({ teacherId: req.user.id }).sort({ createdAt: -1 });
+    res.json({ success: true, data: history });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
