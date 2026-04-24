@@ -24,6 +24,9 @@ const sessionSchema = new mongoose.Schema({
     difficulty: { type: String, enum: ["easy", "medium", "hard"], default: "medium" },
     strictness: { type: String, enum: ["lenient", "moderate", "strict"], default: "moderate" },
     totalMarks: { type: Number, default: 10 },
+    // Multi-model settings
+    models: { type: [String], default: ["gemini"] }, // ['gemini', 'openai', 'anthropic']
+    evaluationStrategy: { type: String, enum: ["average", "best"], default: "average" },
   },
   rubricItems: [{
     parameter: String,
@@ -32,6 +35,28 @@ const sessionSchema = new mongoose.Schema({
   }],
   createdAt: { type: Date, default: Date.now },
 });
+
+// Individual model result sub-schema
+const modelResultSchema = new mongoose.Schema({
+  model: { type: String }, // 'gemini' | 'openai' | 'anthropic'
+  status: { type: String, enum: ["success", "failed"], default: "success" },
+  totalMarks: Number,
+  maxMarks: Number,
+  percentage: Number,
+  grade: String,
+  similarityRisk: String,
+  aiComment: String,
+  scores: [{
+    parameter: String,
+    score: Number,
+    maxScore: Number,
+    feedback: String,
+    status: String,
+  }],
+  strengths: [String],
+  improvements: [String],
+  error: String, // if failed
+}, { _id: false });
 
 // Submission (by student)
 const submissionSchema = new mongoose.Schema({
@@ -56,6 +81,11 @@ const submissionSchema = new mongoose.Schema({
     }],
     improvements: [String],
     strengths: [String],
+    // Multi-model metadata
+    modelResults: [modelResultSchema],
+    evaluationStrategy: { type: String, default: "average" }, // 'average' | 'best'
+    modelsUsed: [String],     // which models successfully ran
+    bestModel: String,        // which model's result was selected (for 'best' strategy)
   },
   evaluatedAt: { type: Date, default: Date.now },
 });

@@ -14,9 +14,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Upload, FileText, GraduationCap, ArrowLeft, CheckCircle2, XCircle,
   AlertTriangle, Lightbulb, ChevronDown, ChevronUp, Sparkles, BarChart3,
-  TrendingUp, AlertCircle, BookOpen, Star, Target, Clock, Eye
+  TrendingUp, AlertCircle, BookOpen, Star, Target, Clock, Eye,
+  MessageSquare, Send, Bot, User as UserIcon, Cpu
 } from "lucide-react";
 import { RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer, Tooltip } from "recharts";
+import { useRef } from "react";
 
 function FileDropzone({ onDrop, file }) {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -99,6 +101,12 @@ export default function StudentPage() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const [expandedParam, setExpandedParam] = useState(null);
+  const [submissionId, setSubmissionId] = useState(null);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [showChat, setShowChat] = useState(false);
+  const chatEndRef = useRef(null);
   const { token, user, loading, logout } = useAuth();
 
   const [activeTab, setActiveTab] = useState("new");
@@ -142,14 +150,43 @@ export default function StudentPage() {
         body: formData
       });
       const data = await res.json();
-      if (data.success) setResult(data.result);
-      else { setError(data.message || "Evaluation failed."); }
+      if (data.success) {
+        setResult(data.result);
+        setSubmissionId(data.submissionId || null);
+        setChatMessages([]);
+        setShowChat(false);
+      } else { setError(data.message || "Evaluation failed."); }
     } catch {
-      // Demo mode
       await new Promise(r => setTimeout(r, 3000));
       setResult(DEMO_RESULT);
     }
     setIsEvaluating(false);
+  };
+
+  const handleSendChat = async () => {
+    if (!chatInput.trim() || chatLoading) return;
+    const question = chatInput.trim();
+    setChatInput("");
+    const userMsg = { role: "user", content: question };
+    setChatMessages(prev => [...prev, userMsg]);
+    setChatLoading(true);
+    try {
+      const res = await fetch("http://localhost:5000/api/rag/chat", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ submissionId, question, history: chatMessages }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setChatMessages(prev => [...prev, { role: "ai", content: data.answer }]);
+      } else {
+        setChatMessages(prev => [...prev, { role: "ai", content: "Sorry, kuch error aaya. Dobara try karo." }]);
+      }
+    } catch {
+      setChatMessages(prev => [...prev, { role: "ai", content: "Network error. Server se connect nahi ho paya." }]);
+    }
+    setChatLoading(false);
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
   };
 
 
@@ -419,6 +456,119 @@ export default function StudentPage() {
                     </ul>
                   </CardContent>
                 </Card>
+
+                {/* Model Comparison Card */}
+                {result.modelResults?.filter(m => m.status === "success").length > 1 && (
+                  <Card className="shadow-sm border-0 bg-gradient-to-br from-indigo-50 to-purple-50 border-indigo-100">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Cpu className="w-4 h-4 text-indigo-600" />
+                        Model Comparison
+                        <Badge className="ml-auto text-xs bg-indigo-100 text-indigo-700 border-0">
+                          Strategy: {result.evaluationStrategy === "best" ? "🏆 Best" : "📊 Average"}
+                        </Badge>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        {result.modelResults.filter(m => m.status === "success").map(m => {
+                          const modelLabels = { gemini: { label: "Gemini", color: "bg-blue-100 text-blue-700 border-blue-200", dot: "bg-blue-500" }, openai: { label: "GPT-4o", color: "bg-green-100 text-green-700 border-green-200", dot: "bg-green-500" }, anthropic: { label: "Claude", color: "bg-purple-100 text-purple-700 border-purple-200", dot: "bg-purple-500" } };
+                          const cfg = modelLabels[m.model] || { label: m.model, color: "bg-gray-100 text-gray-700 border-gray-200", dot: "bg-gray-500" };
+                          const isBest = result.bestModel === m.model;
+                          return (
+                            <div key={m.model} className={`rounded-xl border-2 p-3 text-center relative ${isBest ? "border-amber-400 bg-amber-50" : "border-border/50 bg-white/60"}`}>
+                              {isBest && <span className="absolute -top-2 left-1/2 -translate-x-1/2 bg-amber-400 text-white text-xs px-2 py-0.5 rounded-full font-bold">Selected</span>}
+                              <div className="flex items-center justify-center gap-1.5 mb-2">
+                                <div className={`w-2 h-2 rounded-full ${cfg.dot}`} />
+                                <span className="font-semibold text-sm">{cfg.label}</span>
+                              </div>
+                              <p className="text-2xl font-bold">{m.totalMarks}<span className="text-sm text-muted-foreground font-normal">/{m.maxMarks}</span></p>
+                              <p className="text-xs text-muted-foreground">{m.percentage}% · {m.grade}</p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* RAG Chat Panel */}
+                <Card className="shadow-sm border-0 bg-gradient-to-br from-violet-50 to-purple-50 border-violet-100">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <MessageSquare className="w-4 h-4 text-violet-600" />
+                        Ask AI About Your Results
+                      </CardTitle>
+                      <Button size="sm" variant="outline" className="text-xs border-violet-300 text-violet-700" onClick={() => setShowChat(v => !v)}>
+                        {showChat ? "Hide Chat" : "Open Chat"}
+                      </Button>
+                    </div>
+                    {!showChat && <p className="text-xs text-muted-foreground mt-1">Samajh nahi aaya ki marks kyun kate? AI se seedha puchho!</p>}
+                  </CardHeader>
+                  {showChat && (
+                    <CardContent>
+                      <div className="bg-white/80 rounded-xl border border-violet-200 overflow-hidden">
+                        <div className="h-72 overflow-y-auto p-4 space-y-3">
+                          {chatMessages.length === 0 && (
+                            <div className="text-center text-muted-foreground py-8">
+                              <Bot className="w-10 h-10 mx-auto mb-2 text-violet-300" />
+                              <p className="text-sm font-medium">AI Tutor ready hai!</p>
+                              <p className="text-xs mt-1">Koi bhi sawal puchho apne evaluation ke baare mein</p>
+                              <div className="mt-3 flex flex-wrap gap-2 justify-center">
+                                {["Structure mein marks kyun kate?", "Meri sabse badi weakness kya hai?", "Grade improve karne ke liye kya karun?"].map(q => (
+                                  <button key={q} onClick={() => { setChatInput(q); }} className="text-xs bg-violet-100 text-violet-700 px-3 py-1.5 rounded-full hover:bg-violet-200 transition-colors">{q}</button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {chatMessages.map((msg, i) => (
+                            <div key={i} className={`flex gap-2 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}>
+                              <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${msg.role === "user" ? "bg-violet-600" : "bg-indigo-100"}`}>
+                                {msg.role === "user" ? <UserIcon className="w-4 h-4 text-white" /> : <Bot className="w-4 h-4 text-indigo-600" />}
+                              </div>
+                              <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${msg.role === "user" ? "bg-violet-600 text-white rounded-tr-sm" : "bg-indigo-50 text-foreground rounded-tl-sm border border-indigo-100"}`}>
+                                {msg.content}
+                              </div>
+                            </div>
+                          ))}
+                          {chatLoading && (
+                            <div className="flex gap-2">
+                              <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                                <Bot className="w-4 h-4 text-indigo-600" />
+                              </div>
+                              <div className="bg-indigo-50 rounded-2xl rounded-tl-sm px-4 py-3 border border-indigo-100">
+                                <div className="flex gap-1">
+                                  <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                                  <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                                  <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          <div ref={chatEndRef} />
+                        </div>
+                        <div className="border-t border-violet-200 p-3 flex gap-2 bg-white/60">
+                          <input
+                            className="flex-1 text-sm px-3 py-2 rounded-lg border border-violet-200 bg-white focus:outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-400"
+                            placeholder="Sawal puchho... (Hindi ya English mein)"
+                            value={chatInput}
+                            onChange={e => setChatInput(e.target.value)}
+                            onKeyDown={e => e.key === "Enter" && handleSendChat()}
+                            disabled={chatLoading}
+                          />
+                          <Button size="icon" onClick={handleSendChat} disabled={chatLoading || !chatInput.trim()} className="bg-violet-600 hover:bg-violet-700 rounded-lg h-9 w-9 flex-shrink-0">
+                            <Send className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      {!submissionId && (
+                        <p className="text-xs text-amber-600 mt-2 text-center">⚠️ Demo mode mein chat available nahi hai — real assignment submit karo.</p>
+                      )}
+                    </CardContent>
+                  )}
+                </Card>
+
               </div>
             )}
           </TabsContent>

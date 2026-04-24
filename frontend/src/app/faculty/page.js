@@ -56,6 +56,7 @@ export default function FacultyPage() {
   const [activeTab, setActiveTab] = useState("setup");
   const [files, setFiles] = useState({ question: null, rubric: null, model: null });
   const [settings, setSettings] = useState({ difficulty: "medium", strictness: "moderate", totalMarks: "10", subject: "", title: "" });
+  const [modelConfig, setModelConfig] = useState({ models: ["gemini"], strategy: "average" });
   const [rubricItems, setRubricItems] = useState([
     { parameter: "Concept Accuracy", maxMarks: 3, description: "Are concepts correct and well-explained?" },
     { parameter: "Completeness", maxMarks: 2, description: "Are all parts of the question answered?" },
@@ -139,7 +140,7 @@ export default function FacultyPage() {
       if (files.question) formData.append("questionPaper", files.question);
       if (files.rubric) formData.append("rubricFile", files.rubric);
       if (files.model) formData.append("modelAnswer", files.model);
-      formData.append("settings", JSON.stringify(settings));
+      formData.append("settings", JSON.stringify({ ...settings, models: modelConfig.models, evaluationStrategy: modelConfig.strategy }));
       formData.append("rubricItems", JSON.stringify(rubricItems));
 
       const res = await fetch("http://localhost:5000/api/faculty/create-session", {
@@ -303,8 +304,76 @@ export default function FacultyPage() {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* AI Model Configuration */}
+                <Card className="shadow-sm border-0 bg-white/80">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-indigo-500" />
+                      AI Model Configuration
+                    </CardTitle>
+                    <CardDescription>Choose which AI models evaluate this assignment</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <Label className="text-sm font-medium mb-3 block">Select Models</Label>
+                      <div className="space-y-2">
+                        {[
+                          { id: "gemini", label: "Gemini 2.0 Flash", desc: "Google's fast multimodal model", color: "bg-blue-500" },
+                          { id: "openai", label: "GPT-4o Mini", desc: "OpenAI's efficient model", color: "bg-green-500" },
+                          { id: "anthropic", label: "Claude Sonnet", desc: "Anthropic's reasoning model", color: "bg-purple-500" },
+                        ].map(({ id, label, desc, color }) => {
+                          const checked = modelConfig.models.includes(id);
+                          return (
+                            <label key={id} className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${checked ? "border-indigo-400 bg-indigo-50" : "border-border hover:border-indigo-200"}`}>
+                              <input
+                                type="checkbox"
+                                className="hidden"
+                                checked={checked}
+                                onChange={() => {
+                                  const next = checked
+                                    ? modelConfig.models.filter(m => m !== id)
+                                    : [...modelConfig.models, id];
+                                  if (next.length > 0) setModelConfig({ ...modelConfig, models: next });
+                                }}
+                              />
+                              <div className={`w-3 h-3 rounded-full ${color} flex-shrink-0 ${!checked ? "opacity-30" : ""}`} />
+                              <div className="flex-1">
+                                <p className="text-sm font-semibold">{label}</p>
+                                <p className="text-xs text-muted-foreground">{desc}</p>
+                              </div>
+                              <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all ${checked ? "bg-indigo-600 border-indigo-600" : "border-border"}`}>
+                                {checked && <CheckCircle2 className="w-3.5 h-3.5 text-white" />}
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium mb-2 block">Scoring Strategy</Label>
+                      <Select value={modelConfig.strategy} onValueChange={v => setModelConfig({ ...modelConfig, strategy: v })}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="average">📊 Average — All models ka average score</SelectItem>
+                          <SelectItem value="best">🏆 Best — Highest scoring model ka result</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {modelConfig.models.length > 1 && (
+                        <p className="text-xs text-muted-foreground mt-2">
+                          {modelConfig.strategy === "average"
+                            ? `${modelConfig.models.length} models parallel chalenge, marks ka average final score banega.`
+                            : `${modelConfig.models.length} models parallel chalenge, sabse achha result select hoga.`}
+                        </p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
             </div>
+
 
             {error && (
               <div className="mt-4 flex items-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">

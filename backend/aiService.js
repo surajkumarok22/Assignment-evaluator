@@ -114,14 +114,14 @@ async function callOpenAIAPI(prompt) {
  * Call Google Gemini API
  */
 async function callGeminiAPI(prompt, filePaths) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
   const parts = [];
 
   const addFilePart = async (fPath, mType) => {
     if (!fPath) return;
     const supportedMimes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
-    let finalMimeType = mType || 'application/pdf'; // fallback default
+    let finalMimeType = mType || 'application/pdf';
 
     if (fPath.includes('.pdf')) finalMimeType = 'application/pdf';
     else if (fPath.match(/\.(jpeg|jpg|png|webp)$/i)) {
@@ -171,52 +171,216 @@ async function callGeminiAPI(prompt, filePaths) {
 }
 
 /**
- * Main evaluation function - tries configured provider, falls back gracefully
+ * Parse and validate JSON response from any AI model
  */
-async function evaluateAssignment(params) {
-  const prompt = buildEvaluationPrompt(params);
-  let rawResponse;
+function parseAIResponse(rawResponse) {
+  let jsonStr = rawResponse;
+  const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+  if (jsonMatch) jsonStr = jsonMatch[0];
 
-  const provider = process.env.AI_PROVIDER || "anthropic";
+  const result = JSON.parse(jsonStr);
+  if (!result.scores || !Array.isArray(result.scores)) {
+    throw new Error("Invalid response structure: missing scores array");
+  }
+  // Ensure percentage is rounded to 2 decimal places
+  if (result.percentage) result.percentage = Math.round(result.percentage * 100) / 100;
+  return result;
+}
 
+/**
+ * Determine which AI model display label to use
+ */
+const MODEL_LABELS = {
+  gemini: "Gemini",
+  openai: "GPT-4o",
+  anthropic: "Claude",
+};
+
+/**
+ * Run a single model evaluation — returns { model, status, result | error }
+ */
+async function runSingleModel(modelName, prompt, filePaths) {
   try {
-    if (provider === "openai" && process.env.OPENAI_API_KEY) {
+    let rawResponse;
+    if (modelName === "gemini" && process.env.GEMINI_API_KEY) {
+      rawResponse = await callGeminiAPI(prompt, filePaths || {});
+    } else if (modelName === "openai" && process.env.OPENAI_API_KEY) {
       rawResponse = await callOpenAIAPI(prompt);
-    } else if (provider === "gemini" && process.env.GEMINI_API_KEY) {
-      rawResponse = await callGeminiAPI(prompt, {
-        assignmentPath: params.filePath,
-        assignmentMimeType: params.mimeType,
-        questionPath: params.questionPath,
-        modelAnswerPath: params.modelAnswerPath
-      });
-    } else if (process.env.ANTHROPIC_API_KEY) {
+    } else if (modelName === "anthropic" && process.env.ANTHROPIC_API_KEY) {
       rawResponse = await callAnthropicAPI(prompt);
     } else {
-      throw new Error("No AI API key configured");
+      return { model: modelName, status: "failed", error: `No API key configured for ${modelName}` };
     }
+
+    const result = parseAIResponse(rawResponse);
+    return { model: modelName, status: "success", result };
   } catch (err) {
-    console.error("AI API error:", err.response ? JSON.stringify(err.response.data) : err.message);
-    throw new Error(`AI evaluation failed: ${err.message}`);
-  }
-
-  // Parse and clean JSON response
-  try {
-    let jsonStr = rawResponse;
-    const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      jsonStr = jsonMatch[0];
-    }
-
-    const result = JSON.parse(jsonStr);
-    // Validate required fields
-    if (!result.scores || !Array.isArray(result.scores)) {
-      throw new Error("Invalid response structure");
-    }
-    return result;
-  } catch (parseErr) {
-    console.error("JSON parse error:", parseErr.message, "\nRaw:", rawResponse.substring(0, 500));
-    throw new Error("Failed to parse AI evaluation response");
+    console.error(`[${MODEL_LABELS[modelName] || modelName}] Evaluation failed:`, err.message);
+    return { model: modelName, status: "failed", error: err.message };
   }
 }
 
-module.exports = { evaluateAssignment };
+/**
+ * Aggregate multiple model results using "average" strategy:
+ * - Per-parameter scores are averaged across successful models
+ * - aiComment & feedback come from the model with the highest score
+ */
+function aggregateAverage(successfulResults) {
+  if (successfulResults.length === 1) return successfulResults[0].result;
+
+  // Build parameter map: param name -> array of { score, maxScore, feedback, status }
+  const paramMap = {};
+  for (const { result } of successfulResults) {
+    for (const s of result.scores) {
+      if (!paramMap[s.parameter]) paramMap[s.parameter] = [];
+      paramMap[s.parameter].push(s);
+    }
+  }
+
+  // Average each parameter
+  const avgScores = Object.entries(paramMap).map(([parameter, entries]) => {
+    const avgScore = entries.reduce((sum, e) => sum + e.score, 0) / entries.length;
+    const maxScore = entries[0].maxScore;
+    const pct = avgScore / maxScore;
+    const status = pct >= 0.75 ? "good" : pct >= 0.5 ? "partial" : "poor";
+    // Use feedback from best-scoring entry for this param
+    const bestEntry = entries.reduce((a, b) => a.score >= b.score ? a : b);
+    return {
+      parameter,
+      score: Math.round(avgScore * 10) / 10,
+      maxScore,
+      feedback: bestEntry.feedback,
+      status,
+    };
+  });
+
+  const totalMarks = Math.round(avgScores.reduce((sum, s) => sum + s.score, 0) * 10) / 10;
+  const maxMarks = avgScores.reduce((sum, s) => sum + s.maxScore, 0);
+  const percentage = Math.round((totalMarks / maxMarks) * 10000) / 100;
+
+  // Grade from percentage
+  const grade =
+    percentage >= 95 ? "A+" :
+    percentage >= 85 ? "A" :
+    percentage >= 75 ? "B+" :
+    percentage >= 65 ? "B" :
+    percentage >= 50 ? "C" :
+    percentage >= 35 ? "D" : "F";
+
+  // For comment, strengths, improvements — use the result with highest total marks
+  const bestResult = successfulResults.reduce((a, b) =>
+    a.result.totalMarks >= b.result.totalMarks ? a : b
+  ).result;
+
+  // Average similarityRisk
+  const riskMap = { low: 0, medium: 1, high: 2 };
+  const avgRisk = successfulResults.reduce((sum, r) => sum + (riskMap[r.result.similarityRisk] || 0), 0) / successfulResults.length;
+  const similarityRisk = avgRisk < 0.5 ? "low" : avgRisk < 1.5 ? "medium" : "high";
+
+  return {
+    scores: avgScores,
+    totalMarks,
+    maxMarks,
+    percentage,
+    grade,
+    similarityRisk,
+    aiComment: bestResult.aiComment,
+    strengths: bestResult.strengths,
+    improvements: bestResult.improvements,
+  };
+}
+
+/**
+ * Aggregate multiple model results using "best" strategy:
+ * - Pick the model with the highest totalMarks (most detailed/generous evaluation)
+ */
+function aggregateBest(successfulResults) {
+  const best = successfulResults.reduce((a, b) =>
+    a.result.totalMarks >= b.result.totalMarks ? a : b
+  );
+  return { ...best.result, _bestModel: best.model };
+}
+
+/**
+ * Main multi-model evaluation function
+ * @param {object} params - Same as evaluateAssignment params
+ * @param {object} modelConfig - { models: ['gemini','openai','anthropic'], strategy: 'average'|'best' }
+ */
+async function evaluateWithMultipleModels(params, modelConfig = {}) {
+  const requestedModels = modelConfig.models?.length ? modelConfig.models : ["gemini"];
+  const strategy = modelConfig.strategy || "average";
+
+  const prompt = buildEvaluationPrompt(params);
+  const filePaths = {
+    assignmentPath: params.filePath,
+    assignmentMimeType: params.mimeType,
+    questionPath: params.questionPath,
+    modelAnswerPath: params.modelAnswerPath,
+  };
+
+  console.log(`🤖 Running evaluation with models: [${requestedModels.join(", ")}] | Strategy: ${strategy}`);
+
+  // Run all models in parallel
+  const modelPromises = requestedModels.map(model => runSingleModel(model, prompt, filePaths));
+  const rawResults = await Promise.allSettled(modelPromises);
+
+  // Unwrap allSettled (runSingleModel never throws, so all should be fulfilled)
+  const modelResults = rawResults.map(r => r.status === "fulfilled" ? r.value : { model: "unknown", status: "failed", error: r.reason?.message });
+
+  const successfulResults = modelResults.filter(r => r.status === "success");
+  const failedModels = modelResults.filter(r => r.status === "failed");
+
+  if (failedModels.length > 0) {
+    console.warn(`⚠️  Failed models: ${failedModels.map(f => `${f.model} (${f.error})`).join(", ")}`);
+  }
+
+  if (successfulResults.length === 0) {
+    throw new Error(`All AI models failed to evaluate. Errors: ${failedModels.map(f => f.error).join("; ")}`);
+  }
+
+  console.log(`✅ Successful models: [${successfulResults.map(r => r.model).join(", ")}]`);
+
+  // Aggregate results based on strategy
+  let finalResult;
+  let bestModel = null;
+
+  if (strategy === "best") {
+    const aggregated = aggregateBest(successfulResults);
+    bestModel = aggregated._bestModel;
+    delete aggregated._bestModel;
+    finalResult = aggregated;
+  } else {
+    finalResult = aggregateAverage(successfulResults);
+  }
+
+  // Attach multi-model metadata
+  finalResult.modelResults = modelResults.map(r => ({
+    model: r.model,
+    status: r.status,
+    totalMarks: r.result?.totalMarks,
+    maxMarks: r.result?.maxMarks,
+    percentage: r.result?.percentage,
+    grade: r.result?.grade,
+    similarityRisk: r.result?.similarityRisk,
+    aiComment: r.result?.aiComment,
+    scores: r.result?.scores,
+    strengths: r.result?.strengths,
+    improvements: r.result?.improvements,
+    error: r.error,
+  }));
+  finalResult.evaluationStrategy = strategy;
+  finalResult.modelsUsed = successfulResults.map(r => r.model);
+  if (bestModel) finalResult.bestModel = bestModel;
+
+  return finalResult;
+}
+
+/**
+ * Legacy single-model evaluation (backward compat)
+ */
+async function evaluateAssignment(params) {
+  const provider = process.env.AI_PROVIDER || "gemini";
+  return evaluateWithMultipleModels(params, { models: [provider], strategy: "average" });
+}
+
+module.exports = { evaluateAssignment, evaluateWithMultipleModels };
